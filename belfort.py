@@ -37,8 +37,27 @@ def promptCommand(text, acceptedValues):
     """Send a message to screen to get an input."""
     command = raw_input(text).lower()
     while command not in acceptedValues:
-        command = raw_input(acceptedValues).lower()
+        command = raw_input(text).lower()
     return command
+
+
+def printWallets(accounts):
+    """Print wallet content."""
+    print "\nHere's the list of your wallets:\n"
+    wallets = getWallets(accounts)
+    for account in wallets:
+        print "%s: %s" % (account, wallets[account])
+
+
+def printValues(client):
+    """Print currency values."""
+    currencies = ["BTC", "ETH", "LTC"]
+    baseCurrency = "EUR"
+    print "\nHere the current values of cryptocurrencies:\n"
+    for currency in currencies:
+        currencyPair = currency + "-" + baseCurrency
+        price = client.get_sell_price(currency_pair=currencyPair)
+        print "Current %s price is: %s %s" % (currency, price, baseCurrency)
 
 
 client = None
@@ -71,10 +90,9 @@ if accounts:
     while 1:
         command = promptCommand(commandMainInput, commandList)
         if command == commandDisplayWallet:
-            print "\nHere's the list of your wallets:\n"
-            wallets = getWallets(accounts)
-            for account in wallets:
-                print "%s: %s" % (account, wallets[account])
-        if command == commandExit:
+            printWallets(accounts)
+        elif command == commandDisplayCurrencyValues:
+            printValues(client)
+        elif command == commandExit:
             exit()
         print "\n"
