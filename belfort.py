@@ -1,6 +1,6 @@
 """Main belfort file."""
 
-from coinbase.wallet.client import Client
+import gdax
 import os
 
 
@@ -77,12 +77,14 @@ commandMainInput = "What's next?\n" \
     "Select your choice: "
 API_KEY = 'APIKey'
 API_SECRET = 'APISecret'
-
+API_PASSPHRASE = 'APIPassphrase'
+api_url = "https://api-public.sandbox.gdax.com"
 
 print "\nWelcome to Belfort!\n\n"
 try:
     config = getConfiguration()
-    client = Client(config[API_KEY], config[API_SECRET])
+    client = gdax.AuthenticatedClient(config[API_KEY], config[API_SECRET],
+                                      config[API_PASSPHRASE], api_url=api_url)
     accounts = client.get_accounts()
 except Exception as exc:
     print "Catched exception: %s" % (exc)
