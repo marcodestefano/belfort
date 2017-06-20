@@ -1,2 +1,2 @@
 # belfort
-A python tool to trade cryptocurrencies on coinbase
+A python tool to trade cryptocurrencies on GDAX

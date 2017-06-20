@@ -1,6 +1,6 @@
 """Main belfort file."""
 
-import gdax
+import GDAX
 import os
 
 
@@ -23,22 +23,22 @@ def getConfiguration():
     return conf
 
 
-def getWallets(accounts):
-    """Retrieve the wallets of an account."""
-    wallets = {}
-    if accounts:
-        for account in accounts.data:
-            balance = account.balance
-            wallets[account.name] = balance.amount + " " + balance.currency
-    return wallets
-
-
 def promptCommand(text, acceptedValues):
     """Send a message to screen to get an input."""
     command = raw_input(text).lower()
     while command not in acceptedValues:
         command = raw_input(text).lower()
     return command
+
+
+def getWallets(accounts):
+    """Retrieve the wallets of an account."""
+    wallets = {}
+    if accounts:
+        for account in accounts:
+            wallets[account["id"]] = account["balance"] +\
+                                    " " + account["currency"]
+    return wallets
 
 
 def printWallets(accounts):
@@ -56,8 +56,9 @@ def printValues(client):
     print "\nHere the current values of cryptocurrencies:\n"
     for currency in currencies:
         currencyPair = currency + "-" + baseCurrency
-        price = client.get_sell_price(currency_pair=currencyPair)
-        print "Current %s price is: %s %s" % (currency, price, baseCurrency)
+        ticker = client.getProductTicker(product=currencyPair)
+        print "Current %s price is: %s %s" % (currency, ticker["price"],
+                                              baseCurrency)
 
 
 client = None
@@ -78,14 +79,17 @@ commandMainInput = "What's next?\n" \
 API_KEY = 'APIKey'
 API_SECRET = 'APISecret'
 API_PASSPHRASE = 'APIPassphrase'
-api_url = "https://api-public.sandbox.gdax.com"
+# api_url = "https://api-public.sandbox.gdax.com"
+api_url = "https://api.gdax.com"
+
 
 print "\nWelcome to Belfort!\n\n"
 try:
     config = getConfiguration()
-    client = gdax.AuthenticatedClient(config[API_KEY], config[API_SECRET],
+    client = GDAX.AuthenticatedClient(config[API_KEY], config[API_SECRET],
                                       config[API_PASSPHRASE], api_url=api_url)
-    accounts = client.get_accounts()
+    public_client = GDAX.PublicClient()
+    accounts = client.getAccounts()
 except Exception as exc:
     print "Catched exception: %s" % (exc)
 if accounts:
