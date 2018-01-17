@@ -1,0 +1,6 @@
+#Config file
+
+APIKey:yourAPIKey
+APISecret:yourAPISecret
+
+#End of config file
