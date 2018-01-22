@@ -1,6 +1,6 @@
 """Main belfort file."""
 
-import GDAX
+import gdax
 import os
 
 
@@ -56,7 +56,7 @@ def printValues(client):
     print "\nHere the current values of cryptocurrencies:\n"
     for currency in currencies:
         currencyPair = currency + "-" + baseCurrency
-        ticker = client.getProductTicker(product=currencyPair)
+        ticker = client.get_product_ticker(product_id=currencyPair)
         print "Current %s price is: %s %s" % (currency, ticker["price"],
                                               baseCurrency)
 
@@ -79,17 +79,17 @@ commandMainInput = "What's next?\n" \
 API_KEY = 'APIKey'
 API_SECRET = 'APISecret'
 API_PASSPHRASE = 'APIPassphrase'
-# api_url = "https://api-public.sandbox.gdax.com"
+# api_url = "https://api-public.sandbox.GDAX.com"
 api_url = "https://api.gdax.com"
 
 
 print "\nWelcome to Belfort!\n\n"
 try:
     config = getConfiguration()
-    client = GDAX.AuthenticatedClient(config[API_KEY], config[API_SECRET],
+    client = gdax.AuthenticatedClient(config[API_KEY], config[API_SECRET],
                                       config[API_PASSPHRASE], api_url=api_url)
-    public_client = GDAX.PublicClient()
-    accounts = client.getAccounts()
+    public_client = gdax.PublicClient()
+    accounts = client.get_accounts()
 except Exception as exc:
     print "Catched exception: %s" % (exc)
 if accounts:

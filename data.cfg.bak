@@ -2,5 +2,6 @@
 
 APIKey:yourAPIKey
 APISecret:yourAPISecret
+APIPassphrase:yourAPIPassphrase
 
 #End of config file
