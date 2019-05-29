@@ -1,6 +1,6 @@
 """Main belfort file."""
 
-import gdax
+import cbpro
 import os
 
 
@@ -25,9 +25,9 @@ def getConfiguration():
 
 def promptCommand(text, acceptedValues):
     """Send a message to screen to get an input."""
-    command = raw_input(text).lower()
+    command = input(text).lower()
     while command not in acceptedValues:
-        command = raw_input(text).lower()
+        command = input(text).lower()
     return command
 
 
@@ -43,22 +43,22 @@ def getWallets(accounts):
 
 def printWallets(accounts):
     """Print wallet content."""
-    print "\nHere's the list of your wallets:\n"
+    print ("\nHere's the list of your wallets:\n")
     wallets = getWallets(accounts)
     for account in wallets:
-        print "%s: %s" % (account, wallets[account])
+        print ("%s: %s" % (account, wallets[account]))
 
 
 def printValues(client):
     """Print currency values."""
     currencies = ["BTC", "ETH", "LTC"]
     baseCurrency = "EUR"
-    print "\nHere the current values of cryptocurrencies:\n"
+    print ("\nHere the current values of cryptocurrencies:\n")
     for currency in currencies:
         currencyPair = currency + "-" + baseCurrency
         ticker = client.get_product_ticker(product_id=currencyPair)
-        print "Current %s price is: %s %s" % (currency, ticker["price"],
-                                              baseCurrency)
+        print ("Current %s price is: %s %s" % (currency, ticker["price"],
+                                              baseCurrency))
 
 
 client = None
@@ -79,19 +79,19 @@ commandMainInput = "What's next?\n" \
 API_KEY = 'APIKey'
 API_SECRET = 'APISecret'
 API_PASSPHRASE = 'APIPassphrase'
-# api_url = "https://api-public.sandbox.GDAX.com"
-api_url = "https://api.gdax.com"
+# api_url = "https://api-public.sandbox.pro.coinbase.com"
+api_url = "https://api.pro.coinbase.com"
 
 
-print "\nWelcome to Belfort!\n\n"
+print ("\nWelcome to Belfort!\n\n")
 try:
     config = getConfiguration()
-    client = gdax.AuthenticatedClient(config[API_KEY], config[API_SECRET],
+    client = cbpro.AuthenticatedClient(config[API_KEY], config[API_SECRET],
                                       config[API_PASSPHRASE], api_url=api_url)
-    public_client = gdax.PublicClient()
+    public_client = cbpro.PublicClient()
     accounts = client.get_accounts()
 except Exception as exc:
-    print "Catched exception: %s" % (exc)
+    print ("Catched exception: %s" % (exc))
 if accounts:
     while 1:
         command = promptCommand(commandMainInput, commandList)
@@ -101,4 +101,4 @@ if accounts:
             printValues(client)
         elif command == commandExit:
             exit()
-        print "\n"
+        print ("\n")
