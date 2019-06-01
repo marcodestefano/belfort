@@ -10,16 +10,26 @@ from datetime import timedelta
 ORDER_SIDE_BUY = "buy"
 ORDER_SIDE_SELL = "sell"
 
+#BUY_PRICE_FACTOR = 0.995
+#SELL_PRICE_FACTOR = 1.005
+
 BUY_PRICE_FACTOR = 0.5
 SELL_PRICE_FACTOR = 1.5
+
+BUY_AMOUNT_FACTOR = 0.5
+SELL_AMOUNT_FACTOR = 0.5
+
+ROUNDING_BASE_CURRENCY = 6
+ROUNDING_CRYPTO_CURRENCY = 0
+
+ORDER_TIME_DURATION = 10
+ORDER_TIME_INTERVAL = 5
 
 BASE_CURRENCY = "EUR"
 CRYPTO_CURRENCY = "XLM"
 
-def getConfiguration():
+def getConfiguration(fileName):
     """Retrieve the configuration file."""
-    fileName = 'data.cfg'
-
     directory = os.path.realpath(
         os.path.join(os.getcwd(), os.path.dirname(__file__))
     )
@@ -34,6 +44,12 @@ def getConfiguration():
                     conf[pair[0]] = pair[1]
     return conf
 
+def modifySettings(settings):
+	if settings:
+		if settings["BUY_PRICE_FACTOR"]:
+			BUY_PRICE_FACTOR = Decimal(settings["BUY_PRICE_FACTOR"])
+	return
+
 
 def promptCommand(text, acceptedValues):
     """Send a message to screen to get an input."""
@@ -42,8 +58,8 @@ def promptCommand(text, acceptedValues):
         command = input(text).lower()
     return command
 
-def getCurrencyPair(baseCurrency, otherCurrency):
-	return otherCurrency + "-" + baseCurrency
+def getCurrencyPair(BASE_CURRENCY, otherCurrency):
+	return otherCurrency + "-" + BASE_CURRENCY
 
 def getWallets(client):
     """Retrieve the wallets of an account."""
@@ -69,21 +85,21 @@ def printWallets(client):
     for account in wallets:
     	if Decimal(wallets[account][:-4]) > 0:
         	print ("%s: %s" % (account, wallets[account]))
+    return
 
 
 def printValues(client):
     """Print currency values."""
     currencies = ["BTC", "ETH", "LTC", "XLM"]
-    baseCurrency = BASE_CURRENCY
     print ("\nHere the current values of cryptocurrencies:\n")
     for currency in currencies:
-        currencyPair = getCurrencyPair(baseCurrency, currency)
+        currencyPair = getCurrencyPair(BASE_CURRENCY, currency)
         ticker = client.get_product_ticker(product_id=currencyPair)
         print ("Current %s price is: %s %s" % (currency, ticker["price"],
-                                              baseCurrency))
+                                              BASE_CURRENCY))
 
-def getValue(client, baseCurrency, cryptoCurrency):
-	currencyPair = getCurrencyPair(baseCurrency, cryptoCurrency)
+def getValue(client, BASE_CURRENCY, cryptoCurrency):
+	currencyPair = getCurrencyPair(BASE_CURRENCY, cryptoCurrency)
 	ticker = client.get_product_ticker(product_id=currencyPair)
 	if ticker:
 		return ticker["price"]
@@ -96,7 +112,7 @@ def cancelObsoleteOrders(client):
 	for order in orders:
 		if order["product_id"] == currencyPair :
 			placedAt = datetime.strptime(order["created_at"],'%Y-%m-%dT%H:%M:%S.%fZ')
-			limitTime = placedAt + timedelta(seconds = 10)
+			limitTime = placedAt + timedelta(seconds = ORDER_TIME_DURATION)
 			actualTime = datetime.utcnow()
 			if actualTime > limitTime:
 				client.cancel_order(order["id"])
@@ -105,40 +121,64 @@ def cancelObsoleteOrders(client):
 
 def getEuroInOpenOrders(client):
 	orders = list(client.get_orders())
-	result = Decimal(0.00)
+	result = Decimal(0)
 	for order in orders:
 		if order["side"] == ORDER_SIDE_BUY:
 			result = result + Decimal(order["price"]) * Decimal(order["size"])
 	return result
 
+def getCryptoInOpenOrders(client):
+	orders = list(client.get_orders())
+	result = Decimal(0)
+	for order in orders:
+		if (order["side"] == ORDER_SIDE_SELL) and (order["product_id"] == getCurrencyPair(BASE_CURRENCY, CRYPTO_CURRENCY)):
+			result = result + Decimal(order["size"])
+	return result
+
 def placeBuyOrder(client):
 	euroBlocked = getEuroInOpenOrders(client)
-	print (baseCurrency + " already blocked in open orders: " + str(euroBlocked))
-	euroAvailable = Decimal(getWallet(client, baseCurrency)) - euroBlocked
-	currentCurrencyPrice = Decimal(getValue(client, baseCurrency, currencyOrder))
+	print (BASE_CURRENCY + " already blocked in open orders: " + str(euroBlocked))
+	euroAvailable = Decimal(getWallet(client, BASE_CURRENCY)) - euroBlocked
+	currentCurrencyPrice = Decimal(getValue(client, BASE_CURRENCY, CRYPTO_CURRENCY))
 	buyPrice = Decimal(currentCurrencyPrice) * Decimal(BUY_PRICE_FACTOR)
-	buySize = Decimal(euroAvailable)* Decimal(0.5) / Decimal(buyPrice)
-	buyPrice = round(buyPrice,6)
-	buySize = round(buySize, 0)
-	print ("Placing an order of " + str(buySize) + " " + currencyOrder + " at price of " + str(buyPrice) + " " + baseCurrency)
-	result = client.place_limit_order(product_id=getCurrencyPair(baseCurrency, currencyOrder), 
-                  side='buy', 
+	buySize = Decimal(euroAvailable)* Decimal(BUY_AMOUNT_FACTOR) / Decimal(buyPrice)
+	buyPrice = round(buyPrice, ROUNDING_BASE_CURRENCY)
+	buySize = round(buySize, ROUNDING_CRYPTO_CURRENCY)
+	print ("Placing a " + ORDER_SIDE_BUY + " order of " + str(buySize) + " " + CRYPTO_CURRENCY + " at price of " + str(buyPrice) + " " + BASE_CURRENCY)
+	result = client.place_limit_order(product_id=getCurrencyPair(BASE_CURRENCY, CRYPTO_CURRENCY), 
+                  side=ORDER_SIDE_BUY, 
                   price=str(buyPrice), 
-                  size=str(buySize))
+                  size=str(buySize), post_only = True)
 	#print (result)
 	return
 
+def placeSellOrder(client):
+	cryptoBlocked = getCryptoInOpenOrders(client)
+	print (CRYPTO_CURRENCY + " already blocked in open orders: " + str(cryptoBlocked))
+	cryptoAvailable = Decimal(getWallet(client, CRYPTO_CURRENCY)) - cryptoBlocked
+	currentCurrencyPrice = Decimal(getValue(client, BASE_CURRENCY, CRYPTO_CURRENCY))
+	sellPrice = Decimal(currentCurrencyPrice) * Decimal(SELL_PRICE_FACTOR)
+	sellSize = Decimal(cryptoAvailable)* Decimal(SELL_AMOUNT_FACTOR)
+	sellPrice = round(sellPrice, ROUNDING_BASE_CURRENCY)
+	sellSize = round(sellSize, ROUNDING_CRYPTO_CURRENCY)
+	print ("Placing a " + ORDER_SIDE_SELL + " order of " + str(sellSize) + " " + CRYPTO_CURRENCY + " at price of " + str(sellPrice) + " " + BASE_CURRENCY)
+	result = client.place_limit_order(product_id=getCurrencyPair(BASE_CURRENCY, CRYPTO_CURRENCY), 
+                  side=ORDER_SIDE_SELL, 
+                  price=str(sellPrice), 
+                  size=str(sellSize), post_only = True)
+	return
+
 def startTradingEngine(client):
-	currencyOrder = CRYPTO_CURRENCY
-	baseCurrency = BASE_CURRENCY 
 	i = 0
 	while i<5:
 		cancelObsoleteOrders(client)
 		placeBuyOrder(client)
 		placeSellOrder(client)
-		time.sleep(5)
+		time.sleep(ORDER_TIME_INTERVAL)
 		i = i+1
-
+	time.sleep(ORDER_TIME_DURATION - ORDER_TIME_INTERVAL)
+	cancelObsoleteOrders(client)
+	return
 
 def printOpenOrders(client):
 	print ("\n")
@@ -191,7 +231,8 @@ api_url = "https://api.pro.coinbase.com"
 
 print ("\nWelcome to Belfort!\n\n")
 try:
-    config = getConfiguration()
+    config = getConfiguration('data.cfg')
+    #settings = getConfiguration('settings.cfg')
     client = cbpro.AuthenticatedClient(config[API_KEY], config[API_SECRET],
                                       config[API_PASSPHRASE], api_url=api_url)
 except Exception as exc:
