@@ -189,16 +189,12 @@ def printWallets(client):
         	print ("%s: %s" % (account, wallets[account]))
     return
 
-
-def printValues(client, settings):
-    """Print currency values."""
+def printValue(client, settings):
+    """Print currency value"""
     settings = updateSettings(settings)
-    currencies = ["BTC", "ETH", "LTC", "XLM"]
-    print ("\nHere the current values of cryptocurrencies:\n")
-    for currency in currencies:
-        currencyPair = getCurrencyPair(settings[BASE_CURRENCY], currency)
-        ticker = client.get_product_ticker(product_id=currencyPair)
-        print ("Current %s price is: %s %s" % (currency, ticker["price"],
+    currencyPair = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
+    ticker = client.get_product_ticker(product_id=currencyPair)
+    print ("Current %s price is: %s %s" % (settings[CRYPTO_CURRENCY], ticker["price"],
                                               settings[BASE_CURRENCY]))
 
 def getValue(client, baseCurrency, cryptoCurrency):
@@ -208,6 +204,9 @@ def getValue(client, baseCurrency, cryptoCurrency):
 		return ticker["price"]
 	else:
 		return ""
+
+def getFills(client, settings):
+	return list(client.get_fills(product_id=getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])))
 
 def cancelObsoleteOrders(client, settings):
 	currencyPair = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
@@ -230,6 +229,29 @@ def getCryptoInOpenOrders(client, settings):
 	result = Decimal(getWalletHold(client, settings[CRYPTO_CURRENCY]))
 	return result
 
+def calculateOrderPrice(client, orderSide, settings):
+	feeMultiplier = -1
+	orderFactor = settings[BUY_PRICE_FACTOR]
+	if orderSide == ORDER_SIDE_SELL:
+		feeMultiplier = 1
+		orderFactor = settings[SELL_PRICE_FACTOR]
+	currentCurrencyPriceText = getValue(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
+	currentCurrencyPrice = Decimal(currentCurrencyPriceText)
+	orderPrice = (Decimal(currentCurrencyPrice)+Decimal(currentCurrencyPrice)*settings[ORDER_FEE]*feeMultiplier) * Decimal(orderFactor)
+	orderPrice = round(orderPrice, max(getDecimalPositions(currentCurrencyPriceText),2))
+	return orderPrice
+
+def calculateBuySize(euroAvailable, buyPrice, settings):
+	buySize = Decimal(euroAvailable)* Decimal(settings[BUY_AMOUNT_FACTOR]) / Decimal(buyPrice)
+	buySize = round(buySize, getRoundingFactor(settings[CRYPTO_CURRENCY]))
+	return buySize
+
+def calculateSellSize(client, cryptoAvailable, settings):
+	fills = getFills(client, settings)
+	sellSize = Decimal(cryptoAvailable)* Decimal(settings[SELL_AMOUNT_FACTOR])
+	sellSize = round(sellSize, getRoundingFactor(settings[CRYPTO_CURRENCY]))
+	return sellSize
+
 def placeOrder(client, orderSide, orderSize, orderPrice, settings):
 	if orderSize >= getMinimumOrderAmount(settings[CRYPTO_CURRENCY]):
 		print ("Placing a " + orderSide + " order of " + str(orderSize) + " " + settings[CRYPTO_CURRENCY] + " at price of " + str(orderPrice) + " " + settings[BASE_CURRENCY])
@@ -250,12 +272,8 @@ def placeBuyOrder(client, settings):
 	print (settings[BASE_CURRENCY] + " already blocked in open orders: " + str(float(euroBlocked)))
 	euroAvailable = Decimal(getWalletBalance(client, settings[BASE_CURRENCY])) - euroBlocked
 	if euroAvailable > 0:
-		currentCurrencyPriceText = getValue(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
-		currentCurrencyPrice = Decimal(currentCurrencyPriceText)
-		buyPrice = Decimal(currentCurrencyPrice) * Decimal(settings[BUY_PRICE_FACTOR])
-		buySize = Decimal(euroAvailable)* Decimal(settings[BUY_AMOUNT_FACTOR]) / Decimal(buyPrice)
-		buyPrice = round(buyPrice, max(getDecimalPositions(currentCurrencyPriceText),2))
-		buySize = round(buySize, getRoundingFactor(settings[CRYPTO_CURRENCY]))
+		buyPrice = calculateOrderPrice(client, ORDER_SIDE_BUY, settings)
+		buySize = calculateBuySize(euroAvailable, buyPrice, settings)
 		placeOrder(client, ORDER_SIDE_BUY, buySize, buyPrice, settings)
 	else:
 		print ("You have no available " + settings[BASE_CURRENCY] + " to place a " + ORDER_SIDE_BUY + " order")
@@ -266,12 +284,8 @@ def placeSellOrder(client, settings):
 	print (settings[CRYPTO_CURRENCY] + " already blocked in open orders: " + str(float(cryptoBlocked)))
 	cryptoAvailable = Decimal(getWalletBalance(client, settings[CRYPTO_CURRENCY])) - cryptoBlocked
 	if cryptoAvailable > 0:
-		currentCurrencyPriceText = getValue(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
-		currentCurrencyPrice = Decimal(currentCurrencyPriceText)
-		sellPrice = Decimal(currentCurrencyPrice) * Decimal(settings[SELL_PRICE_FACTOR])
-		sellSize = Decimal(cryptoAvailable)* Decimal(settings[SELL_AMOUNT_FACTOR])
-		sellPrice = round(sellPrice, max(getDecimalPositions(currentCurrencyPriceText),2))
-		sellSize = round(sellSize, getRoundingFactor(settings[CRYPTO_CURRENCY]))
+		sellPrice = calculateOrderPrice(client, ORDER_SIDE_SELL, settings)
+		sellSize = calculateSellSize(client, cryptoAvailable, settings)
 		placeOrder(client, ORDER_SIDE_SELL, sellSize, sellPrice, settings)
 	else:
 		print ("You have no available " + settings[CRYPTO_CURRENCY] + " to place a " + ORDER_SIDE_SELL + " order")
@@ -288,14 +302,14 @@ def startTradingEngine(client, settings):
 		while actualTime < limitTime:
 			cancelObsoleteOrders(client, settings)
 			placeBuyOrder(client, settings)
+			time.sleep(settings[ORDER_TIME_INTERVAL]/2)
 			placeSellOrder(client, settings)
-			time.sleep(settings[ORDER_TIME_INTERVAL])
+			time.sleep(settings[ORDER_TIME_INTERVAL]/2)
 			actualTime = datetime.utcnow()
-		time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL])
+		time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL]/2)
 		cancelObsoleteOrders(client, settings)
 	except Exception as exc:
-		#print ("Input is not a number. Returning to menu")
-		print (exc)
+		print ("Error in the execution of the engine: " + str(exc))
 	return
 
 def printOpenOrders(client):
@@ -313,7 +327,7 @@ def printOpenOrders(client):
 def printFills(client, settings):
 	print ("\n")
 	settings = updateSettings(settings)
-	fills = list(client.get_fills(product_id=getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])))
+	fills = getFills(client, settings)
 	for fill in fills:
 		print ("Order ID: " + fill["order_id"])
 		print ("Type: " + fill["side"])
@@ -328,15 +342,15 @@ config = None
 command = ""
 commandDisplayWallet = "1"
 commandDisplayOpenOrders = "2"
-commandDisplayCurrencyValues = "3"
+commandDisplayCurrencyValue = "3"
 commandStartTradingEngine = "4"
 commandDisplayFills = "5"
 commandExit = "e"
-commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandDisplayCurrencyValues, commandStartTradingEngine, commandDisplayFills, commandExit]
+commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandDisplayCurrencyValue, commandStartTradingEngine, commandDisplayFills, commandExit]
 commandMainInput = "What's next?\n" \
     "Press 1 to display your wallets\n" \
     "Press 2 to display your open orders\n" \
-    "Press 3 to display current currency values\n" \
+    "Press 3 to display current currency value\n" \
     "Press 4 to start the trading engine\n" \
     "Press 5 to display recent fills\n" \
     "Press e (or ctrl+c) to exit the program\n" \
@@ -364,8 +378,8 @@ if client:
 	            printWallets(client)
 	        elif command == commandDisplayOpenOrders:
 	        	printOpenOrders(client)
-	        elif command == commandDisplayCurrencyValues:
-	            printValues(client, settings)
+	        elif command == commandDisplayCurrencyValue:
+	            printValue(client, settings)
 	        elif command == commandStartTradingEngine:
 	        	startTradingEngine(client, settings)
 	        elif command == commandDisplayFills:
