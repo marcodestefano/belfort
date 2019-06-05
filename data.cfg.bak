@@ -3,5 +3,6 @@
 APIKey:yourAPIKey
 APISecret:yourAPISecret
 APIPassphrase:yourAPIPassphrase
+EMAIL_ADDRESS:youremail@domain.com
 
 #End of config file

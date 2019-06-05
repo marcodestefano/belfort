@@ -3,15 +3,23 @@
 import cbpro
 import os
 import time
+import smtplib
 from decimal import Decimal
 from datetime import datetime
 from datetime import timedelta
 
 DATA_FILENAME = 'data.cfg'
 SETTINGS_FILENAME = 'settings.cfg'
+API_KEY = 'APIKey'
+API_SECRET = 'APISecret'
+API_PASSPHRASE = 'APIPassphrase'
+# API_URL = "https://api-public.sandbox.pro.coinbase.com"
+API_URL = "https://api.pro.coinbase.com"
+EMAIL_ADDRESS = "EMAIL_ADDRESS"
+ENGINE_RUN_DURATION = "ENGINE_RUN_DURATION"
+AUTO_RESTART = "AUTO_RESTART"
 BUY_PRICE_FACTOR = "BUY_PRICE_FACTOR"
 SELL_PRICE_FACTOR = "SELL_PRICE_FACTOR"
-ORDER_FEE = "ORDER_FEE"
 BUY_PRICE_FACTOR = "BUY_PRICE_FACTOR"
 SELL_PRICE_FACTOR = "SELL_PRICE_FACTOR"
 BUY_AMOUNT_FACTOR = "BUY_AMOUNT_FACTOR"
@@ -23,7 +31,8 @@ CRYPTO_CURRENCY = "CRYPTO_CURRENCY"
 ORDER_SIDE_BUY = "buy"
 ORDER_SIDE_SELL = "sell"
 
-DEFAULT_ORDER_FEE = 0.0015
+DEFAULT_ENGINE_RUN_DURATION = 300
+DEFAULT_AUTO_RESTART = 0
 
 DEFAULT_BUY_PRICE_FACTOR = 0.5
 DEFAULT_SELL_PRICE_FACTOR = 1.5
@@ -76,13 +85,19 @@ def getConfiguration(fileName):
                     conf[pair[0]] = pair[1]
     return conf
 
-def updateSettings(settings):
-	print("\n")
+def updateSettings():
+	settings = getConfiguration(SETTINGS_FILENAME)
 	if settings:
-		if settings[ORDER_FEE]:
-			settings[ORDER_FEE] = Decimal(settings[ORDER_FEE])
+
+		if settings[ENGINE_RUN_DURATION]:
+			settings[ENGINE_RUN_DURATION] = int(settings[ENGINE_RUN_DURATION])
 		else:
-			setting[ORDER_FEE] = DEFAULT_ORDER_FEE
+			setting[ENGINE_RUN_DURATION] = DEFAULT_ENGINE_RUN_DURATION
+
+		if settings[AUTO_RESTART]:
+			settings[AUTO_RESTART] = int(settings[AUTO_RESTART])
+		else:
+			setting[AUTO_RESTART] = DEFAULT_AUTO_RESTART
 
 		if settings[BUY_PRICE_FACTOR]:
 			settings[BUY_PRICE_FACTOR] = Decimal(settings[BUY_PRICE_FACTOR])
@@ -119,7 +134,6 @@ def updateSettings(settings):
 
 		if settings[CRYPTO_CURRENCY] is None:
 			setting[CRYPTO_CURRENCY] = DEFAULT_CRYPTO_CURRENCY
-	print("Settings updated: " + str(settings))
 	return settings
 
 def promptCommand(text, acceptedValues):
@@ -128,6 +142,31 @@ def promptCommand(text, acceptedValues):
     while command not in acceptedValues:
         command = input(text).lower()
     return command
+
+def sendEmail(message):
+	config = getConfiguration(DATA_FILENAME)
+	if(config[EMAIL_ADDRESS]):
+		fromAddress = 'engine@belfort.crypto'
+		toAddress  = config[EMAIL_ADDRESS]
+		subject = "Engine execution completed"
+		server = 'gmail-smtp-in.l.google.com:25'
+		msg = '''
+    		From: {fromaddress}
+    		To: {toaddress}
+    		Subject: {subject}     
+    		{text}
+		'''
+	msg = msg.format(fromaddress =fromAddress, toaddress = toAddress, subject = subject, text = message)
+	try:
+		server = smtplib.SMTP(server)
+		server.starttls()
+		server.ehlo("belfort.crypto")
+		server.mail(fromAddress)
+		server.rcpt(toAddress)
+		server.data(msg)
+		server.quit()
+	except Exception as exc:
+		print ("Unable to send email: %s" % (exc))
 
 def getCurrencyPair(BASE_CURRENCY, otherCurrency):
 	return otherCurrency + "-" + BASE_CURRENCY
@@ -191,7 +230,7 @@ def printWallets(client):
 
 def printValue(client, settings):
     """Print currency value"""
-    settings = updateSettings(settings)
+    settings = updateSettings()
     currencyPair = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
     ticker = client.get_product_ticker(product_id=currencyPair)
     print ("Current %s price is: %s %s" % (settings[CRYPTO_CURRENCY], ticker["price"],
@@ -230,14 +269,15 @@ def getCryptoInOpenOrders(client, settings):
 	return result
 
 def calculateOrderPrice(client, orderSide, settings):
-	feeMultiplier = -1
+	#feeMultiplier = -1
 	orderFactor = settings[BUY_PRICE_FACTOR]
 	if orderSide == ORDER_SIDE_SELL:
-		feeMultiplier = 1
+	#	feeMultiplier = 1
 		orderFactor = settings[SELL_PRICE_FACTOR]
 	currentCurrencyPriceText = getValue(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
 	currentCurrencyPrice = Decimal(currentCurrencyPriceText)
-	orderPrice = (Decimal(currentCurrencyPrice)+Decimal(currentCurrencyPrice)*settings[ORDER_FEE]*feeMultiplier) * Decimal(orderFactor)
+	orderPrice = Decimal(currentCurrencyPrice) * Decimal(orderFactor)
+	#orderPrice = orderPrice + Decimal(currentCurrencyPrice)*settings[ORDER_FEE]*feeMultiplier
 	orderPrice = round(orderPrice, max(getDecimalPositions(currentCurrencyPriceText),2))
 	return orderPrice
 
@@ -246,8 +286,66 @@ def calculateBuySize(euroAvailable, buyPrice, settings):
 	buySize = round(buySize, getRoundingFactor(settings[CRYPTO_CURRENCY]))
 	return buySize
 
-def calculateSellSize(client, cryptoAvailable, settings):
+def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
 	fills = getFills(client, settings)
+	buyFills = {}
+	sellFills = {}
+	for fill in fills:
+		if fill["side"] == ORDER_SIDE_BUY:
+			realFillPrice = Decimal(fill["price"])+Decimal(fill["fee"])/Decimal(fill["size"])
+			if realFillPrice not in buyFills:
+				buyFills[realFillPrice] = Decimal(0)
+			buyFills[realFillPrice] = buyFills[realFillPrice] + Decimal(fill["size"])
+		else:
+			realFillPrice = Decimal(fill["price"])-Decimal(fill["fee"])/Decimal(fill["size"])
+			if realFillPrice not in sellFills:
+				sellFills[realFillPrice] = Decimal(0)
+			sellFills[realFillPrice] = sellFills[realFillPrice] + Decimal(fill["size"])
+	orderedBuyPrices = list(buyFills.keys())
+	orderedSellPrices = list(sellFills.keys())
+	orderedBuyPrices.sort(reverse = True)
+	orderedSellPrices.sort(reverse = True)
+	for sellPriceItem in orderedSellPrices:
+		for buyPriceItem in orderedBuyPrices:
+			quantitySell = sellFills[sellPriceItem]
+			if quantitySell > 0:
+				if buyPriceItem < sellPriceItem:
+					quantityBuy = buyFills[buyPriceItem]
+					if quantityBuy > 0:
+						if quantitySell < quantityBuy:
+							sellFills[sellPriceItem] = 0
+							buyFills[buyPriceItem] = buyFills[buyPriceItem] - quantitySell
+						else:
+							sellFills[sellPriceItem] = sellFills[sellPriceItem] - quantityBuy
+							buyFills[buyPriceItem] = 0
+	openOrders = list(client.get_orders(product_id = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])))
+	sellOrders = {}
+	for order in openOrders:
+		if order["side"] == ORDER_SIDE_SELL:
+			if Decimal(order["price"]) not in sellOrders:
+				sellOrders[Decimal(order["price"])] = Decimal(0)
+			sellOrders[Decimal(order["price"])] = sellOrders[Decimal(order["price"])] + Decimal(order["size"]) - Decimal(order["filled_size"]) 
+	orderedOrderPrices = list(sellOrders.keys())
+	orderedOrderPrices.sort(reverse = True)
+	for orderPriceItem in orderedOrderPrices:
+		for buyPriceItem in orderedBuyPrices:
+			quantityOrder = sellOrders[orderPriceItem]
+			if quantityOrder > 0:
+				if buyPriceItem < orderPriceItem:
+					quantityBuy = buyFills[buyPriceItem]
+					if quantityBuy > 0:
+						if quantityOrder < quantityBuy:
+							sellOrders[orderPriceItem] = 0
+							buyFills[buyPriceItem] = buyFills[buyPriceItem] - quantityOrder
+						else:
+							sellOrders[orderPriceItem] = sellOrders[orderPriceItem] - quantityBuy
+							buyFills[buyPriceItem] = 0
+	amountToSell = 0
+	for buyPriceItem in buyFills:
+		if buyPriceItem < sellPrice:
+			amountToSell = amountToSell + buyFills[buyPriceItem]
+
+	cryptoAvailable = min(Decimal(cryptoAvailable), Decimal(amountToSell))
 	sellSize = Decimal(cryptoAvailable)* Decimal(settings[SELL_AMOUNT_FACTOR])
 	sellSize = round(sellSize, getRoundingFactor(settings[CRYPTO_CURRENCY]))
 	return sellSize
@@ -285,31 +383,41 @@ def placeSellOrder(client, settings):
 	cryptoAvailable = Decimal(getWalletBalance(client, settings[CRYPTO_CURRENCY])) - cryptoBlocked
 	if cryptoAvailable > 0:
 		sellPrice = calculateOrderPrice(client, ORDER_SIDE_SELL, settings)
-		sellSize = calculateSellSize(client, cryptoAvailable, settings)
+		sellSize = calculateSellSize(client, cryptoAvailable, sellPrice, settings)
 		placeOrder(client, ORDER_SIDE_SELL, sellSize, sellPrice, settings)
 	else:
 		print ("You have no available " + settings[CRYPTO_CURRENCY] + " to place a " + ORDER_SIDE_SELL + " order")
 	return
 
-def startTradingEngine(client, settings):
-	text = "Specify engine running duration in seconds: "
-	try:
-		command = input(text).lower()
-		duration = int(command)
-		settings = updateSettings(settings)
-		actualTime = datetime.utcnow()
-		limitTime = actualTime + timedelta(seconds = duration)
-		while actualTime < limitTime:
-			cancelObsoleteOrders(client, settings)
-			placeBuyOrder(client, settings)
-			time.sleep(settings[ORDER_TIME_INTERVAL]/2)
-			placeSellOrder(client, settings)
-			time.sleep(settings[ORDER_TIME_INTERVAL]/2)
-			actualTime = datetime.utcnow()
-		time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL]/2)
+def executeTradingEngine(client, settings, duration):
+	actualTime = datetime.utcnow()
+	limitTime = actualTime + timedelta(seconds = duration)
+	output = "Engine executed correctly from " + str(actualTime)
+	while actualTime < limitTime:
 		cancelObsoleteOrders(client, settings)
+		placeBuyOrder(client, settings)
+		time.sleep(settings[ORDER_TIME_INTERVAL]/2)
+		placeSellOrder(client, settings)
+		time.sleep(settings[ORDER_TIME_INTERVAL]/2)
+		actualTime = datetime.utcnow()
+	time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL]/2)
+	cancelObsoleteOrders(client, settings)
+	output = output + " to " + str(actualTime)
+	return output
+
+def startTradingEngine(client, settings):
+	output = ""
+	try:
+		settings = updateSettings()
+		print("Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds")
+		output = executeTradingEngine(client, settings, settings[ENGINE_RUN_DURATION])
+		print(output)
 	except Exception as exc:
-		print ("Error in the execution of the engine: " + str(exc))
+		output = "Error in the execution of the engine: " + str(exc)
+		print(output)
+		if(settings[AUTO_RESTART]):
+			startTradingEngine(client, settings)
+	sendEmail(output)
 	return
 
 def printOpenOrders(client):
@@ -326,7 +434,7 @@ def printOpenOrders(client):
 
 def printFills(client, settings):
 	print ("\n")
-	settings = updateSettings(settings)
+	settings = updateSettings()
 	fills = getFills(client, settings)
 	for fill in fills:
 		print ("Order ID: " + fill["order_id"])
@@ -355,37 +463,30 @@ commandMainInput = "What's next?\n" \
     "Press 5 to display recent fills\n" \
     "Press e (or ctrl+c) to exit the program\n" \
     "Select your choice: "
-API_KEY = 'APIKey'
-API_SECRET = 'APISecret'
-API_PASSPHRASE = 'APIPassphrase'
-# api_url = "https://api-public.sandbox.pro.coinbase.com"
-api_url = "https://api.pro.coinbase.com"
-
 
 print ("\nWelcome to Belfort!\n\n")
 try:
     config = getConfiguration(DATA_FILENAME)
-    settings = getConfiguration(SETTINGS_FILENAME)
-    client = cbpro.AuthenticatedClient(config[API_KEY], config[API_SECRET],
-                                      config[API_PASSPHRASE], api_url=api_url)
+    settings = updateSettings()
 except Exception as exc:
     print ("Catched exception: %s" % (exc))
-if client:
-	try:
-	    while 1:
-	        command = promptCommand(commandMainInput, commandList)
-	        if command == commandDisplayWallet:
-	            printWallets(client)
-	        elif command == commandDisplayOpenOrders:
-	        	printOpenOrders(client)
-	        elif command == commandDisplayCurrencyValue:
-	            printValue(client, settings)
-	        elif command == commandStartTradingEngine:
-	        	startTradingEngine(client, settings)
-	        elif command == commandDisplayFills:
-	        	printFills(client, settings)
-	        elif command == commandExit:
-	            exit()
-	        print ("\n")
-	except Exception as exc:
-		print ("Catched exception: %s" % (exc))
+try:
+    while 1:
+        command = promptCommand(commandMainInput, commandList)
+        client = cbpro.AuthenticatedClient(config[API_KEY], config[API_SECRET],
+                                  config[API_PASSPHRASE], api_url=API_URL)
+        if command == commandDisplayWallet:
+            printWallets(client)
+        elif command == commandDisplayOpenOrders:
+        	printOpenOrders(client)
+        elif command == commandDisplayCurrencyValue:
+            printValue(client, settings)
+        elif command == commandStartTradingEngine:
+        	startTradingEngine(client, settings)
+        elif command == commandDisplayFills:
+        	printFills(client, settings)
+        elif command == commandExit:
+            exit()
+        print ("\n")
+except Exception as exc:
+	print ("Catched exception: %s" % (exc))
