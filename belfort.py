@@ -3,8 +3,7 @@
 import cbpro
 import os
 import time
-import smtplib
-from decimal import Decimal
+from decimal import *
 from datetime import datetime
 from datetime import timedelta
 
@@ -28,6 +27,10 @@ ORDER_TIME_DURATION = "ORDER_TIME_DURATION"
 ORDER_TIME_INTERVAL = "ORDER_TIME_INTERVAL"
 BASE_CURRENCY = "BASE_CURRENCY"
 CRYPTO_CURRENCY = "CRYPTO_CURRENCY"
+MIN_SIZE = "base_min_size"
+MAX_SIZE = "base_max_size"
+SIZE_INCREMENT = "base_increment"
+PRICE_INCREMENT = "quote_increment"
 ORDER_SIDE_BUY = "buy"
 ORDER_SIDE_SELL = "sell"
 
@@ -85,7 +88,7 @@ def getConfiguration(fileName):
                     conf[pair[0]] = pair[1]
     return conf
 
-def updateSettings():
+def updateSettings(client):
 	settings = getConfiguration(SETTINGS_FILENAME)
 	if settings:
 
@@ -134,6 +137,13 @@ def updateSettings():
 
 		if settings[CRYPTO_CURRENCY] is None:
 			setting[CRYPTO_CURRENCY] = DEFAULT_CRYPTO_CURRENCY
+
+		product = getProduct(client, settings)
+		settings[MIN_SIZE] = Decimal(product[MIN_SIZE])
+		settings[MAX_SIZE] = Decimal(product[MAX_SIZE])
+		settings[SIZE_INCREMENT] = product[SIZE_INCREMENT]
+		settings[PRICE_INCREMENT] = product[PRICE_INCREMENT]
+
 	return settings
 
 def promptCommand(text, acceptedValues):
@@ -142,31 +152,6 @@ def promptCommand(text, acceptedValues):
     while command not in acceptedValues:
         command = input(text).lower()
     return command
-
-def sendEmail(message):
-	config = getConfiguration(DATA_FILENAME)
-	if(config[EMAIL_ADDRESS]):
-		fromAddress = 'engine@belfort.crypto'
-		toAddress  = config[EMAIL_ADDRESS]
-		subject = "Engine execution completed"
-		server = 'gmail-smtp-in.l.google.com:25'
-		msg = '''
-    		From: {fromaddress}
-    		To: {toaddress}
-    		Subject: {subject}     
-    		{text}
-		'''
-	msg = msg.format(fromaddress =fromAddress, toaddress = toAddress, subject = subject, text = message)
-	try:
-		server = smtplib.SMTP(server)
-		server.starttls()
-		server.ehlo("belfort.crypto")
-		server.mail(fromAddress)
-		server.rcpt(toAddress)
-		server.data(msg)
-		server.quit()
-	except Exception as exc:
-		print ("Unable to send email: %s" % (exc))
 
 def getCurrencyPair(BASE_CURRENCY, otherCurrency):
 	return otherCurrency + "-" + BASE_CURRENCY
@@ -189,12 +174,6 @@ def getRoundingFactor(currency):
 		result = 0
 	return result
 
-def getMinimumOrderAmount(currency):
-	result = 0
-	if ROUNDING_MINIMUM_ORDER[currency]:
-		result = Decimal(ROUNDING_MINIMUM_ORDER[currency])
-	return result
-
 def getWallets(client):
     """Retrieve the wallets of an account."""
     accounts = client.get_accounts()
@@ -204,6 +183,15 @@ def getWallets(client):
             wallets[account["id"]] = account["balance"] +\
                                     " " + account["currency"]
     return wallets
+
+def getProduct(client, settings):
+	products = client.get_products()
+	currencyPair = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
+	for product in products:
+		if(product["id"]==currencyPair):
+			return product
+	return None
+
 
 def getWalletBalance(client, currency):
 	accounts = client.get_accounts()
@@ -230,7 +218,7 @@ def printWallets(client):
 
 def printValue(client, settings):
     """Print currency value"""
-    settings = updateSettings()
+    settings = updateSettings(client)
     currencyPair = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
     ticker = client.get_product_ticker(product_id=currencyPair)
     print ("Current %s price is: %s %s" % (settings[CRYPTO_CURRENCY], ticker["price"],
@@ -269,21 +257,19 @@ def getCryptoInOpenOrders(client, settings):
 	return result
 
 def calculateOrderPrice(client, orderSide, settings):
-	#feeMultiplier = -1
 	orderFactor = settings[BUY_PRICE_FACTOR]
+	roundingStrategy = ROUND_DOWN
 	if orderSide == ORDER_SIDE_SELL:
-	#	feeMultiplier = 1
 		orderFactor = settings[SELL_PRICE_FACTOR]
-	currentCurrencyPriceText = getValue(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
-	currentCurrencyPrice = Decimal(currentCurrencyPriceText)
+		roundingStrategy = ROUND_UP
+	currentCurrencyPrice = Decimal(getValue(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY]))
 	orderPrice = Decimal(currentCurrencyPrice) * Decimal(orderFactor)
-	#orderPrice = orderPrice + Decimal(currentCurrencyPrice)*settings[ORDER_FEE]*feeMultiplier
-	orderPrice = round(orderPrice, max(getDecimalPositions(currentCurrencyPriceText),2))
+	orderPrice = orderPrice.quantize(Decimal(settings[PRICE_INCREMENT]), rounding = roundingStrategy)
 	return orderPrice
 
 def calculateBuySize(euroAvailable, buyPrice, settings):
 	buySize = Decimal(euroAvailable)* Decimal(settings[BUY_AMOUNT_FACTOR]) / Decimal(buyPrice)
-	buySize = round(buySize, getRoundingFactor(settings[CRYPTO_CURRENCY]))
+	buySize = buySize.quantize(Decimal(settings[SIZE_INCREMENT]))
 	return buySize
 
 def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
@@ -347,11 +333,14 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
 
 	cryptoAvailable = min(Decimal(cryptoAvailable), Decimal(amountToSell))
 	sellSize = Decimal(cryptoAvailable)* Decimal(settings[SELL_AMOUNT_FACTOR])
-	sellSize = round(sellSize, getRoundingFactor(settings[CRYPTO_CURRENCY]))
+	sellSize = sellSize.quantize(Decimal(settings[SIZE_INCREMENT]))
 	return sellSize
 
 def placeOrder(client, orderSide, orderSize, orderPrice, settings):
-	if orderSize >= getMinimumOrderAmount(settings[CRYPTO_CURRENCY]):
+	if orderSize >= settings[MAX_SIZE]:
+		orderSize = settings[MAX_SIZE]
+		print ("Warning in placing " + orderSide + " order of size : " + str(orderSize)  + ". Reducing to maximum size " + str(settings[MAX_SIZE]) + " " + settings[CRYPTO_CURRENCY])
+	if orderSize >= settings[MIN_SIZE]:
 		print ("Placing a " + orderSide + " order of " + str(orderSize) + " " + settings[CRYPTO_CURRENCY] + " at price of " + str(orderPrice) + " " + settings[BASE_CURRENCY])
 		result = client.place_limit_order(product_id=getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY]), 
                   side=orderSide, 
@@ -362,7 +351,7 @@ def placeOrder(client, orderSide, orderSize, orderPrice, settings):
 		except Exception as exc:
 			print ("Error in placing " + orderSide + " order: " + result["message"])
 	else:
-		print ("Error in placing " + orderSide + " order: " + "Minimum size is " + str(getMinimumOrderAmount(settings[CRYPTO_CURRENCY])) + " " + settings[CRYPTO_CURRENCY])
+		print ("Error in placing " + orderSide + " order: " + "Minimum size is " + str(settings[MIN_SIZE]) + " " + settings[CRYPTO_CURRENCY])
 	return
 
 def placeBuyOrder(client, settings):
@@ -403,21 +392,19 @@ def executeTradingEngine(client, settings, duration):
 	time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL]/2)
 	cancelObsoleteOrders(client, settings)
 	output = output + " to " + str(actualTime)
-	return output
+	print(output)
+	return
 
 def startTradingEngine(client, settings):
 	output = ""
 	try:
-		settings = updateSettings()
+		settings = updateSettings(client)
 		print("Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds")
-		output = executeTradingEngine(client, settings, settings[ENGINE_RUN_DURATION])
-		print(output)
+		executeTradingEngine(client, settings, settings[ENGINE_RUN_DURATION])
 	except Exception as exc:
-		output = "Error in the execution of the engine: " + str(exc)
-		print(output)
+		print("Error in the execution of the engine: " + str(exc))
 		if(settings[AUTO_RESTART]):
 			startTradingEngine(client, settings)
-	sendEmail(output)
 	return
 
 def printOpenOrders(client):
@@ -434,7 +421,7 @@ def printOpenOrders(client):
 
 def printFills(client, settings):
 	print ("\n")
-	settings = updateSettings()
+	settings = updateSettings(client)
 	fills = getFills(client, settings)
 	for fill in fills:
 		print ("Order ID: " + fill["order_id"])
@@ -467,7 +454,6 @@ commandMainInput = "What's next?\n" \
 print ("\nWelcome to Belfort!\n\n")
 try:
     config = getConfiguration(DATA_FILENAME)
-    settings = updateSettings()
 except Exception as exc:
     print ("Catched exception: %s" % (exc))
 try:
@@ -475,6 +461,7 @@ try:
         command = promptCommand(commandMainInput, commandList)
         client = cbpro.AuthenticatedClient(config[API_KEY], config[API_SECRET],
                                   config[API_PASSPHRASE], api_url=API_URL)
+        settings = updateSettings(client)
         if command == commandDisplayWallet:
             printWallets(client)
         elif command == commandDisplayOpenOrders:
