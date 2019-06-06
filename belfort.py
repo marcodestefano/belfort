@@ -3,6 +3,7 @@
 import cbpro
 import os
 import time
+import traceback
 from decimal import *
 from datetime import datetime
 from datetime import timedelta
@@ -14,7 +15,6 @@ API_SECRET = 'APISecret'
 API_PASSPHRASE = 'APIPassphrase'
 # API_URL = "https://api-public.sandbox.pro.coinbase.com"
 API_URL = "https://api.pro.coinbase.com"
-EMAIL_ADDRESS = "EMAIL_ADDRESS"
 ENGINE_RUN_DURATION = "ENGINE_RUN_DURATION"
 AUTO_RESTART = "AUTO_RESTART"
 BUY_PRICE_FACTOR = "BUY_PRICE_FACTOR"
@@ -49,28 +49,6 @@ DEFAULT_ORDER_TIME_INTERVAL = 3
 DEFAULT_BASE_CURRENCY = "EUR"
 DEFAULT_CRYPTO_CURRENCY = "XLM"
 
-ROUNDING_MINIMUM_ORDER = { "BTC": "0.001",
-"BCH": "0.01",
-"ETH": "0.01",
-"MKR": "0.01",
-"ZEC": "0.01",
-"EOS": "0.1",
-"ETC": "0.1",
-"LTC": "0.1",
-"REP": "0.1",
-"BAT": "1",
-"CVC": "1",
-"DAI": "1",
-"DNT": "1",
-"GNT": "1",
-"LOOM": "1",
-"MANA":	"1",
-"XLM": "1",
-"XRP": "1",
-"ZIL": "1",
-"ZRX": "1"
-}
-
 
 def getConfiguration(fileName):
     """Retrieve the configuration file."""
@@ -89,6 +67,7 @@ def getConfiguration(fileName):
     return conf
 
 def updateSettings(client):
+	"""Retrieve settings stored on file."""
 	settings = getConfiguration(SETTINGS_FILENAME)
 	if settings:
 
@@ -138,7 +117,7 @@ def updateSettings(client):
 		if settings[CRYPTO_CURRENCY] is None:
 			setting[CRYPTO_CURRENCY] = DEFAULT_CRYPTO_CURRENCY
 
-		product = getProduct(client, settings)
+		product = getProduct(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
 		settings[MIN_SIZE] = Decimal(product[MIN_SIZE])
 		settings[MAX_SIZE] = Decimal(product[MAX_SIZE])
 		settings[SIZE_INCREMENT] = product[SIZE_INCREMENT]
@@ -153,26 +132,9 @@ def promptCommand(text, acceptedValues):
         command = input(text).lower()
     return command
 
-def getCurrencyPair(BASE_CURRENCY, otherCurrency):
-	return otherCurrency + "-" + BASE_CURRENCY
-
-def getDecimalPositions(value):
-	result = -1
-	if value:
-		if "." in value:
-			value = str(float(value))
-		else:
-			value = str(int(value))
-		result = value[::-1].find('.')
-	return result
-
-def getRoundingFactor(currency):
-	result = 1
-	if ROUNDING_MINIMUM_ORDER[currency]:
-		result = getDecimalPositions(ROUNDING_MINIMUM_ORDER[currency])
-	if result == -1:
-		result = 0
-	return result
+def getCurrencyPair(baseCurrency, cryptoCurrency):
+	"""Returns the currency pair in the format expected in Coinbase Pro"""
+	return cryptoCurrency + "-" + baseCurrency
 
 def getWallets(client):
     """Retrieve the wallets of an account."""
@@ -184,28 +146,30 @@ def getWallets(client):
                                     " " + account["currency"]
     return wallets
 
-def getProduct(client, settings):
+def getProduct(client, baseCurrency, cryptoCurrency):
+	"""Returns the product specified in settings currencies"""
 	products = client.get_products()
-	currencyPair = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
+	currencyPair = getCurrencyPair(baseCurrency, cryptoCurrency)
 	for product in products:
 		if(product["id"]==currencyPair):
 			return product
 	return None
 
-
 def getWalletBalance(client, currency):
+	"""Returns the balance of the wallet in the given currency"""
 	accounts = client.get_accounts()
 	if accounts:
 		for account in accounts:
 			if account["currency"] == currency:
-				return account["balance"]
+				return Decimal(account["balance"])
 
 def getWalletHold(client, currency):
+	"""Returns the hold amount for the given currency"""
 	accounts = client.get_accounts()
 	if accounts:
 		for account in accounts:
 			if account["currency"] == currency:
-				return account["hold"]
+				return Decimal(account["hold"])
 
 def printWallets(client):
     """Print wallet content."""
@@ -225,6 +189,7 @@ def printValue(client, settings):
                                               settings[BASE_CURRENCY]))
 
 def getValue(client, baseCurrency, cryptoCurrency):
+	"""Returns the current price of a crypto currency expressed in base currency"""
 	currencyPair = getCurrencyPair(baseCurrency, cryptoCurrency)
 	ticker = client.get_product_ticker(product_id=currencyPair)
 	if ticker:
@@ -232,8 +197,9 @@ def getValue(client, baseCurrency, cryptoCurrency):
 	else:
 		return ""
 
-def getFills(client, settings):
-	return list(client.get_fills(product_id=getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])))
+def getFills(client, baseCurrency, cryptoCurrency):
+	"""Returns the list of fills for the product identified by the given pair of currencies"""
+	return list(client.get_fills(product_id=getCurrencyPair(baseCurrency, cryptoCurrency)))
 
 def cancelObsoleteOrders(client, settings):
 	currencyPair = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
@@ -248,32 +214,29 @@ def cancelObsoleteOrders(client, settings):
 				print ("Canceled " + order["side"] + " order " + order["id"] + " of size " + order["size"] + " and price " + order["price"] + " placed at " + str(placedAt))
 	return
 
-def getEuroInOpenOrders(client, settings):
-	result = Decimal(getWalletHold(client, settings[BASE_CURRENCY]))
-	return result
-
-def getCryptoInOpenOrders(client, settings):
-	result = Decimal(getWalletHold(client, settings[CRYPTO_CURRENCY]))
-	return result
-
 def calculateOrderPrice(client, orderSide, settings):
+	"""Returns the order price based on the settings and the side of the order (buy vs sell)"""
+	#Get the price factor from the settings and choose a rounding: down in case of buy (means buying at a lower price) and up in case of sell (the opposite)
 	orderFactor = settings[BUY_PRICE_FACTOR]
 	roundingStrategy = ROUND_DOWN
 	if orderSide == ORDER_SIDE_SELL:
 		orderFactor = settings[SELL_PRICE_FACTOR]
 		roundingStrategy = ROUND_UP
+	#Get the current currency price
 	currentCurrencyPrice = Decimal(getValue(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY]))
+	#The order price is built as currentPrice * orderFactor, and then rounded down or up with a precision of the minimum price increment possible
 	orderPrice = Decimal(currentCurrencyPrice) * Decimal(orderFactor)
 	orderPrice = orderPrice.quantize(Decimal(settings[PRICE_INCREMENT]), rounding = roundingStrategy)
 	return orderPrice
 
 def calculateBuySize(euroAvailable, buyPrice, settings):
+	"""Returns the size of currency to buy based on the settings and the buy price, rounded with a precision of the smallest quantity that can be bought"""
 	buySize = Decimal(euroAvailable)* Decimal(settings[BUY_AMOUNT_FACTOR]) / Decimal(buyPrice)
 	buySize = buySize.quantize(Decimal(settings[SIZE_INCREMENT]))
 	return buySize
 
 def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
-	fills = getFills(client, settings)
+	fills = getFills(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
 	buyFills = {}
 	sellFills = {}
 	for fill in fills:
@@ -337,9 +300,12 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
 	return sellSize
 
 def placeOrder(client, orderSide, orderSize, orderPrice, settings):
+	"""Places an order on Coinbase Pro of the given size, price, side (buy or sell) based on the available settings"""
+	#If order size is bigger than the maximum allowed size for transaction, the order is capped at max size
 	if orderSize >= settings[MAX_SIZE]:
 		orderSize = settings[MAX_SIZE]
 		print ("Warning in placing " + orderSide + " order of size : " + str(orderSize)  + ". Reducing to maximum size " + str(settings[MAX_SIZE]) + " " + settings[CRYPTO_CURRENCY])
+	#If order is bigger than the minimum allowed size, it is placed
 	if orderSize >= settings[MIN_SIZE]:
 		print ("Placing a " + orderSide + " order of " + str(orderSize) + " " + settings[CRYPTO_CURRENCY] + " at price of " + str(orderPrice) + " " + settings[BASE_CURRENCY])
 		result = client.place_limit_order(product_id=getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY]), 
@@ -347,29 +313,38 @@ def placeOrder(client, orderSide, orderSize, orderPrice, settings):
                   price=str(orderPrice), 
                   size=str(orderSize), post_only = True)
 		try:
+			#If order is correctly placed, it will have a unique ID
 			print (orderSide + " order placed with ID " + result["id"])
-		except Exception as exc:
+		except Exception:
+			#If there was an error in placing the order, the error message will be displayed
 			print ("Error in placing " + orderSide + " order: " + result["message"])
 	else:
-		print ("Error in placing " + orderSide + " order: " + "Minimum size is " + str(settings[MIN_SIZE]) + " " + settings[CRYPTO_CURRENCY])
+		#If order size is smaller than minimum allowed size, it can't be placed
+		print ("Impossible to place " + orderSide + " order: " + "Minimum size is " + str(settings[MIN_SIZE]) + " " + settings[CRYPTO_CURRENCY])
 	return
 
 def placeBuyOrder(client, settings):
-	euroBlocked = getEuroInOpenOrders(client, settings)
-	print (settings[BASE_CURRENCY] + " already blocked in open orders: " + str(float(euroBlocked)))
-	euroAvailable = Decimal(getWalletBalance(client, settings[BASE_CURRENCY])) - euroBlocked
-	if euroAvailable > 0:
+	"""Place a buy order based on current settings"""
+	#Get the amount available to place a buy order
+	baseCurrencyInOpenOrders = getWalletHold(client, settings[BASE_CURRENCY])
+	baseCurrencyAvailable = getWalletBalance(client, settings[BASE_CURRENCY])- baseCurrencyInOpenOrders
+	print (settings[BASE_CURRENCY] + " available: " + str(float(baseCurrencyAvailable)))
+	#If there's an amount available, price and size are calculated based on the settings
+	if baseCurrencyAvailable > 0:
 		buyPrice = calculateOrderPrice(client, ORDER_SIDE_BUY, settings)
-		buySize = calculateBuySize(euroAvailable, buyPrice, settings)
+		buySize = calculateBuySize(baseCurrencyAvailable, buyPrice, settings)
 		placeOrder(client, ORDER_SIDE_BUY, buySize, buyPrice, settings)
 	else:
 		print ("You have no available " + settings[BASE_CURRENCY] + " to place a " + ORDER_SIDE_BUY + " order")
 	return
 
 def placeSellOrder(client, settings):
-	cryptoBlocked = getCryptoInOpenOrders(client, settings)
-	print (settings[CRYPTO_CURRENCY] + " already blocked in open orders: " + str(float(cryptoBlocked)))
-	cryptoAvailable = Decimal(getWalletBalance(client, settings[CRYPTO_CURRENCY])) - cryptoBlocked
+	"""Place a sell order based on current settings"""
+	#Get the amount available to place a buy order
+	cryptoInOpenOrders = getWalletHold(client, settings[CRYPTO_CURRENCY])
+	cryptoAvailable = getWalletBalance(client, settings[CRYPTO_CURRENCY]) - cryptoInOpenOrders
+	print (settings[CRYPTO_CURRENCY] + " available: " + str(float(cryptoAvailable)))
+	#If there's an amount available, price and size are calculated based on the settings
 	if cryptoAvailable > 0:
 		sellPrice = calculateOrderPrice(client, ORDER_SIDE_SELL, settings)
 		sellSize = calculateSellSize(client, cryptoAvailable, sellPrice, settings)
@@ -379,6 +354,7 @@ def placeSellOrder(client, settings):
 	return
 
 def executeTradingEngine(client, settings, duration):
+	"""Execute the trading engine for the given duration"""
 	actualTime = datetime.utcnow()
 	limitTime = actualTime + timedelta(seconds = duration)
 	output = "Engine executed correctly from " + str(actualTime)
@@ -401,8 +377,8 @@ def startTradingEngine(client, settings):
 		settings = updateSettings(client)
 		print("Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds")
 		executeTradingEngine(client, settings, settings[ENGINE_RUN_DURATION])
-	except Exception as exc:
-		print("Error in the execution of the engine: " + str(exc))
+	except Exception:
+		print("Error in the execution of the engine: " + str(traceback.print_exc()))
 		if(settings[AUTO_RESTART]):
 			startTradingEngine(client, settings)
 	return
@@ -419,18 +395,6 @@ def printOpenOrders(client):
 		print ("\n")
 	return
 
-def printFills(client, settings):
-	print ("\n")
-	settings = updateSettings(client)
-	fills = getFills(client, settings)
-	for fill in fills:
-		print ("Order ID: " + fill["order_id"])
-		print ("Type: " + fill["side"])
-		print ("Price: " + fill["price"] + " " + settings[BASE_CURRENCY])
-		print ("Size: " + fill["size"] + " " + settings[CRYPTO_CURRENCY])
-		print ("\n")
-	return
-
 client = None
 accounts = None
 config = None
@@ -439,23 +403,21 @@ commandDisplayWallet = "1"
 commandDisplayOpenOrders = "2"
 commandDisplayCurrencyValue = "3"
 commandStartTradingEngine = "4"
-commandDisplayFills = "5"
 commandExit = "e"
-commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandDisplayCurrencyValue, commandStartTradingEngine, commandDisplayFills, commandExit]
+commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandDisplayCurrencyValue, commandStartTradingEngine, commandExit]
 commandMainInput = "What's next?\n" \
     "Press 1 to display your wallets\n" \
     "Press 2 to display your open orders\n" \
     "Press 3 to display current currency value\n" \
     "Press 4 to start the trading engine\n" \
-    "Press 5 to display recent fills\n" \
-    "Press e (or ctrl+c) to exit the program\n" \
+    "Press e (or ctrl+c at any time) to exit the program\n" \
     "Select your choice: "
 
 print ("\nWelcome to Belfort!\n\n")
 try:
     config = getConfiguration(DATA_FILENAME)
-except Exception as exc:
-    print ("Catched exception: %s" % (exc))
+except Exception:
+    print ("Catched exception: %s" % (traceback.print_exc()))
 try:
     while 1:
         command = promptCommand(commandMainInput, commandList)
@@ -470,10 +432,8 @@ try:
             printValue(client, settings)
         elif command == commandStartTradingEngine:
         	startTradingEngine(client, settings)
-        elif command == commandDisplayFills:
-        	printFills(client, settings)
         elif command == commandExit:
             exit()
         print ("\n")
-except Exception as exc:
-	print ("Catched exception: %s" % (exc))
+except Exception:
+	print ("Catched exception: %s" % (traceback.print_exc()))
