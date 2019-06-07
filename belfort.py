@@ -33,6 +33,7 @@ SIZE_INCREMENT = "base_increment"
 PRICE_INCREMENT = "quote_increment"
 ORDER_SIDE_BUY = "buy"
 ORDER_SIDE_SELL = "sell"
+ORDER_FEE = 0.0015
 
 DEFAULT_ENGINE_RUN_DURATION = 300
 DEFAULT_AUTO_RESTART = 0
@@ -188,7 +189,7 @@ def printValue(client, settings):
     print ("Current %s price is: %s %s" % (settings[CRYPTO_CURRENCY], ticker["price"],
                                               settings[BASE_CURRENCY]))
 
-def getValue(client, baseCurrency, cryptoCurrency):
+def getCurrentPrice(client, baseCurrency, cryptoCurrency):
 	"""Returns the current price of a crypto currency expressed in base currency"""
 	currencyPair = getCurrencyPair(baseCurrency, cryptoCurrency)
 	ticker = client.get_product_ticker(product_id=currencyPair)
@@ -223,7 +224,7 @@ def calculateOrderPrice(client, orderSide, settings):
 		orderFactor = settings[SELL_PRICE_FACTOR]
 		roundingStrategy = ROUND_UP
 	#Get the current currency price
-	currentCurrencyPrice = Decimal(getValue(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY]))
+	currentCurrencyPrice = Decimal(getCurrentPrice(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY]))
 	#The order price is built as currentPrice * orderFactor, and then rounded down or up with a precision of the minimum price increment possible
 	orderPrice = Decimal(currentCurrencyPrice) * Decimal(orderFactor)
 	orderPrice = orderPrice.quantize(Decimal(settings[PRICE_INCREMENT]), rounding = roundingStrategy)
@@ -235,7 +236,7 @@ def calculateBuySize(euroAvailable, buyPrice, settings):
 	buySize = buySize.quantize(Decimal(settings[SIZE_INCREMENT]))
 	return buySize
 
-def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
+def calculateActiveFills(client, settings):
 	fills = getFills(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
 	buyFills = {}
 	sellFills = {}
@@ -267,6 +268,10 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
 						else:
 							sellFills[sellPriceItem] = sellFills[sellPriceItem] - quantityBuy
 							buyFills[buyPriceItem] = 0
+	return buyFills
+
+def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
+	buyFills = calculateActiveFills(client, settings)
 	openOrders = list(client.get_orders(product_id = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])))
 	sellOrders = {}
 	for order in openOrders:
@@ -275,7 +280,9 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
 				sellOrders[Decimal(order["price"])] = Decimal(0)
 			sellOrders[Decimal(order["price"])] = sellOrders[Decimal(order["price"])] + Decimal(order["size"]) - Decimal(order["filled_size"]) 
 	orderedOrderPrices = list(sellOrders.keys())
+	orderedBuyPrices = list(buyFills.keys())
 	orderedOrderPrices.sort(reverse = True)
+	orderedBuyPrices.sort(reverse = True)
 	for orderPriceItem in orderedOrderPrices:
 		for buyPriceItem in orderedBuyPrices:
 			quantityOrder = sellOrders[orderPriceItem]
@@ -291,7 +298,7 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
 							buyFills[buyPriceItem] = 0
 	amountToSell = 0
 	for buyPriceItem in buyFills:
-		if buyPriceItem < sellPrice:
+		if buyPriceItem < sellPrice*(1-ORDER_FEE):
 			amountToSell = amountToSell + buyFills[buyPriceItem]
 
 	cryptoAvailable = min(Decimal(cryptoAvailable), Decimal(amountToSell))
@@ -395,6 +402,43 @@ def printOpenOrders(client):
 		print ("\n")
 	return
 
+def printBalance(client, settings):
+	fills = getFills(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
+	balance = Decimal(0.0)
+	last24hBalance = Decimal(0.0)
+	last24hSize = Decimal(0.0)
+	limitTime = datetime.utcnow() - timedelta(hours = 24)
+	for fill in fills:
+		size = Decimal(fill["size"])
+		amount = Decimal(fill["price"]) * size
+		fee = Decimal(fill["fee"])
+		if fill["side"] == ORDER_SIDE_BUY:
+			balance = balance - amount
+		else:
+			balance = balance + amount
+		balance = balance - fee
+		fillTime = datetime.strptime(fill["created_at"],'%Y-%m-%dT%H:%M:%S.%fZ')
+		if fillTime > limitTime:
+			if fill["side"] == ORDER_SIDE_BUY:
+				last24hBalance = last24hBalance - amount
+				last24hSize = last24hSize + size
+			else:
+				last24hBalance = last24hBalance + amount
+				last24hSize = last24hSize - size
+			last24hBalance = last24hBalance - fee
+	print("Current overall balance is " + str(float(balance)) + " " + settings[BASE_CURRENCY])
+	print("Last 24 hours balance is "+ str(float(last24hBalance)) + " " + settings[BASE_CURRENCY] + " and " + str(float(last24hSize)) + " " + settings[CRYPTO_CURRENCY])
+	return
+
+def printActiveFills(client, settings):
+	activeFills = calculateActiveFills(client, settings)
+	orderedBuyPrices = list(activeFills.keys())
+	orderedBuyPrices.sort(reverse = True)
+	for orderedPriceItem in orderedBuyPrices:
+		if activeFills[orderedPriceItem] != 0:
+			print ("Buy price: " + str(float(orderedPriceItem)) + " Remaining quantity: " + str(float(activeFills[orderedPriceItem])))
+	return
+
 client = None
 accounts = None
 config = None
@@ -402,14 +446,18 @@ command = ""
 commandDisplayWallet = "1"
 commandDisplayOpenOrders = "2"
 commandDisplayCurrencyValue = "3"
-commandStartTradingEngine = "4"
+commandPrintBalance = "4"
+commandPrintActiveFills = "5"
+commandStartTradingEngine = "6"
 commandExit = "e"
-commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandDisplayCurrencyValue, commandStartTradingEngine, commandExit]
+commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandDisplayCurrencyValue, commandPrintBalance, commandPrintActiveFills, commandStartTradingEngine, commandExit]
 commandMainInput = "What's next?\n" \
     "Press 1 to display your wallets\n" \
     "Press 2 to display your open orders\n" \
     "Press 3 to display current currency value\n" \
-    "Press 4 to start the trading engine\n" \
+    "Press 4 to print your current balance\n" \
+    "Press 5 to print the active fills\n" \
+    "Press 6 to start the trading engine\n" \
     "Press e (or ctrl+c at any time) to exit the program\n" \
     "Select your choice: "
 
@@ -430,6 +478,10 @@ try:
         	printOpenOrders(client)
         elif command == commandDisplayCurrencyValue:
             printValue(client, settings)
+        elif command == commandPrintBalance:
+        	printBalance(client, settings)
+        elif command == commandPrintActiveFills:
+        	printActiveFills(client, settings)
         elif command == commandStartTradingEngine:
         	startTradingEngine(client, settings)
         elif command == commandExit:
