@@ -298,7 +298,7 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
 							buyFills[buyPriceItem] = 0
 	amountToSell = 0
 	for buyPriceItem in buyFills:
-		if buyPriceItem < sellPrice*(1-ORDER_FEE):
+		if buyPriceItem < sellPrice*Decimal(1-ORDER_FEE):
 			amountToSell = amountToSell + buyFills[buyPriceItem]
 
 	cryptoAvailable = min(Decimal(cryptoAvailable), Decimal(amountToSell))
