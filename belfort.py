@@ -287,7 +287,7 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
 		for buyPriceItem in orderedBuyPrices:
 			quantityOrder = sellOrders[orderPriceItem]
 			if quantityOrder > 0:
-				if buyPriceItem < orderPriceItem:
+				if buyPriceItem < orderPriceItem*Decimal(1-ORDER_FEE):
 					quantityBuy = buyFills[buyPriceItem]
 					if quantityBuy > 0:
 						if quantityOrder < quantityBuy:
