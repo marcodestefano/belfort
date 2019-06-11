@@ -17,6 +17,8 @@ API_PASSPHRASE = 'APIPassphrase'
 API_URL = "https://api.pro.coinbase.com"
 ENGINE_RUN_DURATION = "ENGINE_RUN_DURATION"
 AUTO_RESTART = "AUTO_RESTART"
+IGNORE_EXISTING_FILLS = "IGNORE_EXISTING_FILLS"
+MAX_BUY_AMOUNT = "MAX_BUY_AMOUNT"
 BUY_PRICE_FACTOR = "BUY_PRICE_FACTOR"
 SELL_PRICE_FACTOR = "SELL_PRICE_FACTOR"
 BUY_PRICE_FACTOR = "BUY_PRICE_FACTOR"
@@ -37,6 +39,10 @@ ORDER_FEE = 0.0015
 
 DEFAULT_ENGINE_RUN_DURATION = 300
 DEFAULT_AUTO_RESTART = 0
+
+DEFAULT_IGNORE_EXISTING_FILLS = 1
+
+DEFAULT_MAX_BUY_AMOUNT = Decimal.max
 
 DEFAULT_BUY_PRICE_FACTOR = 0.5
 DEFAULT_SELL_PRICE_FACTOR = 1.5
@@ -81,6 +87,16 @@ def updateSettings(client):
 			settings[AUTO_RESTART] = int(settings[AUTO_RESTART])
 		else:
 			setting[AUTO_RESTART] = DEFAULT_AUTO_RESTART
+
+		if settings[IGNORE_EXISTING_FILLS]:
+			settings[IGNORE_EXISTING_FILLS] = int(settings[IGNORE_EXISTING_FILLS])
+		else:
+			setting[AUTO_RESTART] = DEFAULT_IGNORE_EXISTING_FILLS
+
+		if settings[MAX_BUY_AMOUNT]:
+			settings[MAX_BUY_AMOUNT] = Decimal(settings[MAX_BUY_AMOUNT])
+		else:
+			setting[MAX_BUY_AMOUNT] = DEFAULT_MAX_BUY_AMOUNT
 
 		if settings[BUY_PRICE_FACTOR]:
 			settings[BUY_PRICE_FACTOR] = Decimal(settings[BUY_PRICE_FACTOR])
@@ -270,8 +286,12 @@ def calculateActiveFills(client, settings):
 							buyFills[buyPriceItem] = 0
 	return buyFills
 
-def calculateSellSize(client, cryptoAvailable, sellPrice, settings):
+def calculateSellSize(client, cryptoAvailable, sellPrice, activeFillsToRemove, settings):
 	buyFills = calculateActiveFills(client, settings)
+	#if there are fills to ignore, the related quantities are removed from the active fills count
+	for fill in activeFillsToRemove:
+		if fill in buyFills:
+			buyFills[fill] = buyFills[fill] - min(buyFills[fill],activeFillsToRemove[fill])
 	openOrders = list(client.get_orders(product_id = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])))
 	sellOrders = {}
 	for order in openOrders:
@@ -334,7 +354,7 @@ def placeBuyOrder(client, settings):
 	"""Place a buy order based on current settings"""
 	#Get the amount available to place a buy order
 	baseCurrencyInOpenOrders = getWalletHold(client, settings[BASE_CURRENCY])
-	baseCurrencyAvailable = getWalletBalance(client, settings[BASE_CURRENCY])- baseCurrencyInOpenOrders
+	baseCurrencyAvailable = min(getWalletBalance(client, settings[BASE_CURRENCY])- baseCurrencyInOpenOrders, settings[MAX_BUY_AMOUNT])
 	print (settings[BASE_CURRENCY] + " available: " + str(float(baseCurrencyAvailable)))
 	#If there's an amount available, price and size are calculated based on the settings
 	if baseCurrencyAvailable > 0:
@@ -345,7 +365,7 @@ def placeBuyOrder(client, settings):
 		print ("You have no available " + settings[BASE_CURRENCY] + " to place a " + ORDER_SIDE_BUY + " order")
 	return
 
-def placeSellOrder(client, settings):
+def placeSellOrder(client, activeFillsToRemove, settings):
 	"""Place a sell order based on current settings"""
 	#Get the amount available to place a buy order
 	cryptoInOpenOrders = getWalletHold(client, settings[CRYPTO_CURRENCY])
@@ -354,7 +374,7 @@ def placeSellOrder(client, settings):
 	#If there's an amount available, price and size are calculated based on the settings
 	if cryptoAvailable > 0:
 		sellPrice = calculateOrderPrice(client, ORDER_SIDE_SELL, settings)
-		sellSize = calculateSellSize(client, cryptoAvailable, sellPrice, settings)
+		sellSize = calculateSellSize(client, cryptoAvailable, sellPrice, activeFillsToRemove, settings)
 		placeOrder(client, ORDER_SIDE_SELL, sellSize, sellPrice, settings)
 	else:
 		print ("You have no available " + settings[CRYPTO_CURRENCY] + " to place a " + ORDER_SIDE_SELL + " order")
@@ -362,6 +382,9 @@ def placeSellOrder(client, settings):
 
 def executeTradingEngine(client, settings, duration):
 	"""Execute the trading engine for the given duration"""
+	activeFillsToRemove = {}
+	if settings[IGNORE_EXISTING_FILLS]:
+		activeFillsToRemove = calculateActiveFills(client, settings)
 	actualTime = datetime.utcnow()
 	limitTime = actualTime + timedelta(seconds = duration)
 	output = "Engine executed correctly from " + str(actualTime)
@@ -369,7 +392,7 @@ def executeTradingEngine(client, settings, duration):
 		cancelObsoleteOrders(client, settings)
 		placeBuyOrder(client, settings)
 		time.sleep(settings[ORDER_TIME_INTERVAL]/2)
-		placeSellOrder(client, settings)
+		placeSellOrder(client, activeFillsToRemove, settings)
 		time.sleep(settings[ORDER_TIME_INTERVAL]/2)
 		actualTime = datetime.utcnow()
 	time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL]/2)
