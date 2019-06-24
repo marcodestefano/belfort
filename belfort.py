@@ -18,6 +18,8 @@ API_URL = "https://api.pro.coinbase.com"
 ENGINE_RUN_DURATION = "ENGINE_RUN_DURATION"
 AUTO_RESTART = "AUTO_RESTART"
 IGNORE_EXISTING_FILLS = "IGNORE_EXISTING_FILLS"
+KEEP_SELL_ORDER_OPEN = "KEEP_SELL_ORDER_OPEN"
+AUTO_CANCEL = "AUTO_CANCEL"
 MAX_BUY_AMOUNT = "MAX_BUY_AMOUNT"
 BUY_PRICE_FACTOR = "BUY_PRICE_FACTOR"
 SELL_PRICE_FACTOR = "SELL_PRICE_FACTOR"
@@ -41,6 +43,8 @@ DEFAULT_ENGINE_RUN_DURATION = 300
 DEFAULT_AUTO_RESTART = 0
 
 DEFAULT_IGNORE_EXISTING_FILLS = 1
+DEFAULT_KEEP_SELL_ORDER_OPEN = 1
+DEFAULT_AUTO_CANCEL = 1
 
 DEFAULT_MAX_BUY_AMOUNT = Decimal('Inf')
 
@@ -91,7 +95,17 @@ def updateSettings(client):
 		if settings[IGNORE_EXISTING_FILLS]:
 			settings[IGNORE_EXISTING_FILLS] = int(settings[IGNORE_EXISTING_FILLS])
 		else:
-			setting[AUTO_RESTART] = DEFAULT_IGNORE_EXISTING_FILLS
+			setting[IGNORE_EXISTING_FILLS] = DEFAULT_IGNORE_EXISTING_FILLS
+
+		if settings[KEEP_SELL_ORDER_OPEN]:
+			settings[KEEP_SELL_ORDER_OPEN] = int(settings[KEEP_SELL_ORDER_OPEN])
+		else:
+			setting[KEEP_SELL_ORDER_OPEN] = DEFAULT_KEEP_SELL_ORDER_OPEN
+
+		if settings[AUTO_CANCEL]:
+			settings[AUTO_CANCEL] = int(settings[AUTO_CANCEL])
+		else:
+			setting[AUTO_CANCEL] = DEFAULT_AUTO_CANCEL
 
 		if settings[MAX_BUY_AMOUNT]:
 			settings[MAX_BUY_AMOUNT] = Decimal(settings[MAX_BUY_AMOUNT])
@@ -222,7 +236,7 @@ def cancelObsoleteOrders(client, settings):
 	currencyPair = getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
 	orders = list(client.get_orders())
 	for order in orders:
-		if order["product_id"] == currencyPair :
+		if order["product_id"] == currencyPair and (order["side"] == ORDER_SIDE_BUY or not settings[KEEP_SELL_ORDER_OPEN]):
 			placedAt = datetime.strptime(order["created_at"],'%Y-%m-%dT%H:%M:%S.%fZ')
 			limitTime = placedAt + timedelta(seconds = settings[ORDER_TIME_DURATION])
 			actualTime = datetime.utcnow()
@@ -335,10 +349,15 @@ def placeOrder(client, orderSide, orderSize, orderPrice, settings):
 	#If order is bigger than the minimum allowed size, it is placed
 	if orderSize >= settings[MIN_SIZE]:
 		print ("Placing a " + orderSide + " order of " + str(orderSize) + " " + settings[CRYPTO_CURRENCY] + " at price of " + str(orderPrice) + " " + settings[BASE_CURRENCY])
+		timeInForce = None
+		cancelAfter = None
+		if settings[AUTO_CANCEL] and (orderSide == ORDER_SIDE_BUY or not settings[KEEP_SELL_ORDER_OPEN]):
+			timeInForce = "GTT"
+			cancelAfter = "min"
 		result = client.place_limit_order(product_id=getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY]), 
                   side=orderSide, 
                   price=str(orderPrice), 
-                  size=str(orderSize), post_only = True)
+                  size=str(orderSize), post_only = True, time_in_force = timeInForce, cancel_after = cancelAfter)
 		try:
 			#If order is correctly placed, it will have a unique ID
 			print (orderSide + " order placed with ID " + result["id"])
@@ -389,20 +408,21 @@ def executeTradingEngine(client, settings, duration):
 	limitTime = actualTime + timedelta(seconds = duration)
 	output = "Engine executed correctly from " + str(actualTime)
 	while actualTime < limitTime:
-		cancelObsoleteOrders(client, settings)
+		if not settings[AUTO_CANCEL]:
+			cancelObsoleteOrders(client, settings)
 		placeBuyOrder(client, settings)
 		time.sleep(settings[ORDER_TIME_INTERVAL]/2)
 		placeSellOrder(client, activeFillsToRemove, settings)
 		time.sleep(settings[ORDER_TIME_INTERVAL]/2)
 		actualTime = datetime.utcnow()
-	time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL]/2)
-	cancelObsoleteOrders(client, settings)
+	if not settings[AUTO_CANCEL]:
+		time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL]/2)
+		cancelObsoleteOrders(client, settings)
 	output = output + " to " + str(actualTime)
 	print(output)
 	return
 
 def startTradingEngine(client, settings):
-	output = ""
 	try:
 		settings = updateSettings(client)
 		print("Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds")
@@ -411,6 +431,28 @@ def startTradingEngine(client, settings):
 		print("Error in the execution of the engine: " + str(traceback.print_exc()))
 		if(settings[AUTO_RESTART]):
 			startTradingEngine(client, settings)
+	return
+
+def sellActiveFills(client, settings):
+	try:
+		settings = updateSettings(client)
+		print("Selling following active fills:")
+		printActiveFills(client, settings)
+		activeFills = calculateActiveFills(client, settings)
+		orderedBuyPrices = list(activeFills.keys())
+		orderedBuyPrices.sort(reverse = True)
+		for orderedPriceItem in orderedBuyPrices:
+			if activeFills[orderedPriceItem] != 0:
+				cryptoInOpenOrders = getWalletHold(client, settings[CRYPTO_CURRENCY])
+				cryptoAvailable = getWalletBalance(client, settings[CRYPTO_CURRENCY]) - cryptoInOpenOrders
+				if cryptoAvailable > 0:
+					sellPrice = Decimal(orderedPriceItem * settings[SELL_PRICE_FACTOR])
+					sellPrice = sellPrice.quantize(Decimal(settings[PRICE_INCREMENT]), rounding = ROUND_UP)
+					sellSize = min(activeFills[orderedPriceItem], cryptoAvailable)
+					sellSize = sellSize.quantize(Decimal(settings[SIZE_INCREMENT]))
+					placeOrder(client, ORDER_SIDE_SELL, sellSize, sellPrice, settings)
+	except Exception:
+		print("Error in the execution of the engine: " + str(traceback.print_exc()))
 	return
 
 def printOpenOrders(client):
@@ -472,8 +514,9 @@ commandDisplayCurrencyValue = "3"
 commandPrintBalance = "4"
 commandPrintActiveFills = "5"
 commandStartTradingEngine = "6"
+commandSellActiveFills = "7"
 commandExit = "e"
-commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandDisplayCurrencyValue, commandPrintBalance, commandPrintActiveFills, commandStartTradingEngine, commandExit]
+commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandDisplayCurrencyValue, commandPrintBalance, commandPrintActiveFills, commandStartTradingEngine, commandSellActiveFills, commandExit]
 commandMainInput = "What's next?\n" \
     "Press 1 to display your wallets\n" \
     "Press 2 to display your open orders\n" \
@@ -481,6 +524,7 @@ commandMainInput = "What's next?\n" \
     "Press 4 to print your current balance\n" \
     "Press 5 to print the active fills\n" \
     "Press 6 to start the trading engine\n" \
+    "Press 7 to sell the active fills\n" \
     "Press e (or ctrl+c at any time) to exit the program\n" \
     "Select your choice: "
 
@@ -507,6 +551,8 @@ try:
         	printActiveFills(client, settings)
         elif command == commandStartTradingEngine:
         	startTradingEngine(client, settings)
+        elif command == commandSellActiveFills:
+        	sellActiveFills(client, settings)
         elif command == commandExit:
             exit()
         print ("\n")
