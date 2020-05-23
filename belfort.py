@@ -151,16 +151,15 @@ def updateSettings(client):
 		product = getProduct(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
 		settings[MIN_SIZE] = Decimal(product[MIN_SIZE])
 		settings[MAX_SIZE] = Decimal(product[MAX_SIZE])
-		settings[SIZE_INCREMENT] = product[SIZE_INCREMENT]
-		settings[PRICE_INCREMENT] = product[PRICE_INCREMENT]
-
+		settings[SIZE_INCREMENT] = product[SIZE_INCREMENT].rstrip("0")
+		settings[PRICE_INCREMENT] = product[PRICE_INCREMENT].rstrip("0")
 	return settings
 
 def promptCommand(text, acceptedValues):
     """Send a message to screen to get an input."""
-    command = input(text).lower()
+    command = str(input(text)).lower()
     while command not in acceptedValues:
-        command = input(text).lower()
+        command = str(input(text)).lower()
     return command
 
 def getCurrencyPair(baseCurrency, cryptoCurrency):
@@ -366,7 +365,7 @@ def placeOrder(client, orderSide, orderSize, orderPrice, settings):
 			print ("Error in placing " + orderSide + " order: " + result["message"])
 	else:
 		#If order size is smaller than minimum allowed size, it can't be placed
-		print ("Impossible to place " + orderSide + " order: " + "Minimum size is " + str(settings[MIN_SIZE]) + " " + settings[CRYPTO_CURRENCY])
+		print ("Impossible to place " + orderSide + " order: " + "Minimum size is " + str(settings[MIN_SIZE]) + " " + settings[CRYPTO_CURRENCY] + " and you're trying to sell " + str(orderSize) + " " + settings[CRYPTO_CURRENCY])
 	return
 
 def placeBuyOrder(client, settings):
