@@ -103,3 +103,4 @@ ENV/
 # Private config
 data.cfg
 belfort.ico
+settings.json
