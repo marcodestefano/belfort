@@ -4,7 +4,9 @@ import cbpro
 import os
 import time
 import traceback
-from decimal import *
+from decimal import Decimal
+from decimal import ROUND_DOWN
+from decimal import ROUND_UP
 from datetime import datetime
 from datetime import timedelta
 
