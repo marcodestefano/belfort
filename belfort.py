@@ -269,7 +269,7 @@ def calculateBuySize(euroAvailable, buyPrice, settings):
 	return buySize
 
 def getFeeRate(client):
-	return Decimal(client.get_fees()[MAKER_FEE_RATE])
+	return Decimal(client._send_message('get', '/fees')[MAKER_FEE_RATE])
 
 def calculateActiveFills(client, settings):
 	fills = getFills(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
@@ -374,7 +374,7 @@ def placeOrder(client, orderSide, orderSize, orderPrice, settings):
 			print ("Error in placing " + orderSide + " order: " + result["message"])
 	else:
 		#If order size is smaller than minimum allowed size, it can't be placed
-		print ("Impossible to place " + orderSide + " order: " + "Minimum size is " + str(settings[MIN_SIZE]) + " " + settings[CRYPTO_CURRENCY] + " and you're trying to sell " + str(orderSize) + " " + settings[CRYPTO_CURRENCY])
+		print ("Impossible to place " + orderSide + " order: " + "Minimum size is " + str(settings[MIN_SIZE]) + " " + settings[CRYPTO_CURRENCY] + " and you're trying to " + orderSide + " " + str(orderSize) + " " + settings[CRYPTO_CURRENCY])
 	return
 
 def placeBuyOrder(client, settings):
@@ -402,7 +402,10 @@ def placeSellOrder(client, activeFillsToRemove, settings):
 	if cryptoAvailable > 0:
 		sellPrice = calculateOrderPrice(client, ORDER_SIDE_SELL, settings)
 		sellSize = calculateSellSize(client, cryptoAvailable, sellPrice, activeFillsToRemove, settings)
-		placeOrder(client, ORDER_SIDE_SELL, sellSize, sellPrice, settings)
+		if sellSize > 0:
+			placeOrder(client, ORDER_SIDE_SELL, sellSize, sellPrice, settings)
+		else:
+			print ("You have no available " + settings[CRYPTO_CURRENCY] + " to place a " + ORDER_SIDE_SELL + " order at " + str(sellPrice))
 	else:
 		print ("You have no available " + settings[CRYPTO_CURRENCY] + " to place a " + ORDER_SIDE_SELL + " order")
 	return
