@@ -34,6 +34,7 @@ ORDER_TIME_INTERVAL = "ORDER_TIME_INTERVAL"
 BASE_CURRENCY = "BASE_CURRENCY"
 CRYPTO_CURRENCY = "CRYPTO_CURRENCY"
 TAKER_FEE_RATE = "taker_fee_rate"
+MAKER_FEE_RATE = "maker_fee_rate"
 MIN_SIZE = "base_min_size"
 MAX_SIZE = "base_max_size"
 SIZE_INCREMENT = "base_increment"
@@ -268,7 +269,7 @@ def calculateBuySize(euroAvailable, buyPrice, settings):
 	return buySize
 
 def getFeeRate(client):
-	return Decimal(client.get_fees()[TAKER_FEE_RATE])
+	return Decimal(client.get_fees()[MAKER_FEE_RATE])
 
 def calculateActiveFills(client, settings):
 	fills = getFills(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
