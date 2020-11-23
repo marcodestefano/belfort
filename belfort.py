@@ -33,13 +33,13 @@ ORDER_TIME_DURATION = "ORDER_TIME_DURATION"
 ORDER_TIME_INTERVAL = "ORDER_TIME_INTERVAL"
 BASE_CURRENCY = "BASE_CURRENCY"
 CRYPTO_CURRENCY = "CRYPTO_CURRENCY"
+TAKER_FEE_RATE = "taker_fee_rate"
 MIN_SIZE = "base_min_size"
 MAX_SIZE = "base_max_size"
 SIZE_INCREMENT = "base_increment"
 PRICE_INCREMENT = "quote_increment"
 ORDER_SIDE_BUY = "buy"
 ORDER_SIDE_SELL = "sell"
-ORDER_FEE = 0.0015
 
 DEFAULT_ENGINE_RUN_DURATION = 300
 DEFAULT_AUTO_RESTART = 0
@@ -267,18 +267,22 @@ def calculateBuySize(euroAvailable, buyPrice, settings):
 	buySize = buySize.quantize(Decimal(settings[SIZE_INCREMENT]))
 	return buySize
 
+def getFeeRate(client):
+	return Decimal(client.get_fees()[TAKER_FEE_RATE])
+
 def calculateActiveFills(client, settings):
 	fills = getFills(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
+	feeRate = getFeeRate(client)
 	buyFills = {}
 	sellFills = {}
 	for fill in fills:
 		if fill["side"] == ORDER_SIDE_BUY:
-			realFillPrice = Decimal(fill["price"])+Decimal(fill["fee"])/Decimal(fill["size"])
+			realFillPrice = (Decimal(fill["price"])+Decimal(fill["fee"])/Decimal(fill["size"]))*(1+feeRate)
 			if realFillPrice not in buyFills:
 				buyFills[realFillPrice] = Decimal(0)
 			buyFills[realFillPrice] = buyFills[realFillPrice] + Decimal(fill["size"])
 		else:
-			realFillPrice = Decimal(fill["price"])-Decimal(fill["fee"])/Decimal(fill["size"])
+			realFillPrice = (Decimal(fill["price"])-Decimal(fill["fee"])/Decimal(fill["size"]))*(1+feeRate)
 			if realFillPrice not in sellFills:
 				sellFills[realFillPrice] = Decimal(0)
 			sellFills[realFillPrice] = sellFills[realFillPrice] + Decimal(fill["size"])
@@ -322,7 +326,8 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, activeFillsToRemove, s
 		for buyPriceItem in orderedBuyPrices:
 			quantityOrder = sellOrders[orderPriceItem]
 			if quantityOrder > 0:
-				if buyPriceItem < orderPriceItem*Decimal(1-ORDER_FEE):
+				#if buyPriceItem < orderPriceItem*Decimal(1-ORDER_FEE):
+				if buyPriceItem < orderPriceItem:
 					quantityBuy = buyFills[buyPriceItem]
 					if quantityBuy > 0:
 						if quantityOrder < quantityBuy:
@@ -333,7 +338,8 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, activeFillsToRemove, s
 							buyFills[buyPriceItem] = 0
 	amountToSell = 0
 	for buyPriceItem in buyFills:
-		if buyPriceItem < sellPrice*Decimal(1-ORDER_FEE):
+		#if buyPriceItem < sellPrice*Decimal(1-ORDER_FEE):
+		if buyPriceItem < sellPrice:
 			amountToSell = amountToSell + buyFills[buyPriceItem]
 
 	cryptoAvailable = min(Decimal(cryptoAvailable), Decimal(amountToSell))
