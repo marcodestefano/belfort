@@ -104,3 +104,5 @@ ENV/
 data.cfg
 belfort.ico
 settings.json
+telegram.cfg
+users.cfg
