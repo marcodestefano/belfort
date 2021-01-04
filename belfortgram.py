@@ -1,6 +1,6 @@
 import os
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from utils import authenticateClient, updateSettings, getWalletsText, getOpenOrdersText, getBalanceText, getFillsText, sellActiveFillsText
+from utils import authenticateClient, updateSettings, getWalletsText, getOpenOrdersText, getBalanceText, getFillsText, sellActiveFillsText, stopTradingEngine, getTradingEngineStatusText
 
 BOT_TOKEN = 'TelegramBotToken'
 TOKEN_FILENAME = 'telegram.cfg'
@@ -57,9 +57,10 @@ def getHelpMessage():
         "/wallet to display your wallets\n" \
         "/orders to display your open orders\n" \
         "/balance to print your current balance\n" \
-        "/fills to print the active fills\n" \
+        "/sellFills to sell the active fills\n" \
+        "/status to check the trading engine status\n" \
         "/startEngine to start the trading engine\n" \
-        "/sellFills to sell the active fills"
+        "/stopEngine to stop the trading engine\n"
 
 def getUnknownMessage():
     return "Sorry, I didn't understand that command."
@@ -85,6 +86,12 @@ def displayFills(update, context):
 def sellFills(update, context):
     genericHandler(update, context, sellActiveFillsText, client, settings)
 
+def stopEngine(update, context):
+    genericHandler(update, context, stopTradingEngine)
+
+def status(update, context):
+    genericHandler(update, context, getTradingEngineStatusText)
+
 def unknown(update, context):
     genericHandler(update, context, getUnknownMessage)
 
@@ -102,6 +109,8 @@ displayOrders_handler = CommandHandler('orders', displayOrders)
 displayBalance_handler = CommandHandler('balance', displayBalance)
 displayFills_handler = CommandHandler('fills', displayFills)
 sellFills_handler = CommandHandler('sellFills', sellFills)
+stopEngine_handler = CommandHandler('stopEngine', stopEngine)
+status_handler = CommandHandler('status', status)
 unknown_handler = MessageHandler(Filters.command, unknown)
 dispatcher.add_handler(start_handler)
 dispatcher.add_handler(displayCommand_handler)
@@ -110,6 +119,8 @@ dispatcher.add_handler(displayOrders_handler)
 dispatcher.add_handler(displayBalance_handler)
 dispatcher.add_handler(displayFills_handler)
 dispatcher.add_handler(sellFills_handler)
+dispatcher.add_handler(stopEngine_handler)
+dispatcher.add_handler(status_handler)
 dispatcher.add_handler(unknown_handler)
 updater.start_polling()
 print("Bot is active and running")

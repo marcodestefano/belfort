@@ -57,6 +57,8 @@ DEFAULT_ORDER_TIME_INTERVAL = 3
 DEFAULT_BASE_CURRENCY = "EUR"
 DEFAULT_CRYPTO_CURRENCY = "XLM"
 
+TRADING_ENGINE_ACTIVE = 0
+
 def getConfiguration(fileName):
     """Retrieve the configuration file."""
     directory = os.path.realpath(
@@ -416,7 +418,7 @@ def executeTradingEngine(client, settings, duration):
     actualTime = datetime.utcnow()
     limitTime = actualTime + timedelta(seconds = duration)
     output = "Engine executed correctly from " + str(actualTime)
-    while actualTime < limitTime:
+    while (actualTime < limitTime) and TRADING_ENGINE_ACTIVE:
         if not settings[AUTO_CANCEL]:
             cancelObsoleteOrders(client, settings)
         placeBuyOrder(client, settings)
@@ -432,6 +434,8 @@ def executeTradingEngine(client, settings, duration):
     return
 
 def startTradingEngine(client, settings):
+    global TRADING_ENGINE_ACTIVE
+    TRADING_ENGINE_ACTIVE = 1
     try:
         settings = updateSettings(client)
         print("Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds")
@@ -441,6 +445,26 @@ def startTradingEngine(client, settings):
         if(settings[AUTO_RESTART]):
             startTradingEngine(client, settings)
     return
+
+def stopTradingEngine():
+    result = ""
+    global TRADING_ENGINE_ACTIVE
+    if TRADING_ENGINE_ACTIVE:
+        TRADING_ENGINE_ACTIVE = 0
+        result = "Trading engine stopped."
+    else:
+        result = "Trading engine already stopped."
+    return result
+
+def getTradingEngineStatusText():
+    result = ""
+    global TRADING_ENGINE_ACTIVE
+    if TRADING_ENGINE_ACTIVE:
+        result = "Trading engine is running"
+    else:
+        result = "Trading engine is not running"
+    return result
+
 
 def sellActiveFills(client, settings):
     try:
