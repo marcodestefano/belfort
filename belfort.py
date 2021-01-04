@@ -15,22 +15,20 @@ config = None
 command = ""
 commandDisplayWallet = "1"
 commandDisplayOpenOrders = "2"
-commandDisplayCurrencyValue = "3"
-commandPrintBalance = "4"
-commandPrintActiveFills = "5"
-commandStartTradingEngine = "6"
-commandSellActiveFills = "7"
+commandPrintBalance = "3"
+commandPrintActiveFills = "4"
+commandStartTradingEngine = "5"
+commandSellActiveFills = "6"
 commandExit = "e"
-commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandDisplayCurrencyValue, commandPrintBalance, commandPrintActiveFills, commandStartTradingEngine, commandSellActiveFills, commandExit]
+commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandPrintBalance, commandPrintActiveFills, commandStartTradingEngine, commandSellActiveFills, commandExit]
 commandMainInput = "What's next?\n" \
-    "Press 1 to display your wallets\n" \
-    "Press 2 to display your open orders\n" \
-    "Press 3 to display current currency value\n" \
-    "Press 4 to print your current balance\n" \
-    "Press 5 to print the active fills\n" \
-    "Press 6 to start the trading engine\n" \
-    "Press 7 to sell the active fills\n" \
-    "Press e (or ctrl+c at any time) to exit the program\n" \
+    "Press "+ commandDisplayWallet +" to display your wallets\n" \
+    "Press "+ commandDisplayOpenOrders +" to display your open orders\n" \
+    "Press "+ commandPrintBalance +" to print your current balance\n" \
+    "Press "+ commandPrintActiveFills +" to print the active fills\n" \
+    "Press "+ commandStartTradingEngine +" to start the trading engine\n" \
+    "Press "+ commandSellActiveFills +" to sell the active fills\n" \
+    "Press "+ commandExit +" (or ctrl+c at any time) to exit the program\n" \
     "Select your choice: "
 
 print ("\nWelcome to Belfort!\n\n")
@@ -43,8 +41,6 @@ try:
             printWallets(client)
         elif command == commandDisplayOpenOrders:
         	printOpenOrders(client)
-        elif command == commandDisplayCurrencyValue:
-            printValue(client, settings)
         elif command == commandPrintBalance:
         	printBalance(client, settings)
         elif command == commandPrintActiveFills:

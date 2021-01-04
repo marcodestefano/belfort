@@ -1,6 +1,6 @@
 import os
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from utils import authenticateClient, printWalletsTelegram, updateSettings
+from utils import authenticateClient, updateSettings, getWalletsText, getOpenOrdersText, getBalanceText, getFillsText
 
 BOT_TOKEN = 'TelegramBotToken'
 TOKEN_FILENAME = 'telegram.cfg'
@@ -48,22 +48,35 @@ def displayHelp(update, context):
         helpMessage = "Here's the command list:\n" \
         "/wallet to display your wallets\n" \
         "/orders to display your open orders\n" \
-        "/currency to display current currency value\n" \
         "/balance to print your current balance\n" \
         "/fills to print the active fills\n" \
         "/startEngine to start the trading engine\n" \
         "/sellFills to sell the active fills"
         context.bot.send_message(chat_id=update.effective_chat.id, text=helpMessage)
 
-
 def displayWallet(update, context):
     if isAuthorized(update):
-        output = "Here there are your wallets: " + printWalletsTelegram(client)
+        output = "Here there are your wallets: " + getWalletsText(client)
         context.bot.send_message(chat_id=update.effective_chat.id, text=output)
 
+def displayOrders(update, context):
+    if isAuthorized(update):
+        output = getOpenOrdersText(client)
+        context.bot.send_message(chat_id=update.effective_chat.id, text=output)
+
+def displayBalance(update, context):
+    if isAuthorized(update):
+        output = getBalanceText(client, settings)
+        context.bot.send_message(chat_id=update.effective_chat.id, text=output)
+
+def displayFills(update, context):
+    if isAuthorized(update):
+        output = getFillsText(client, settings)
+        context.bot.send_message(chat_id=update.effective_chat.id, text=output)
 
 def unknown(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I didn't understand that command.")
+    if isAuthorized(update):
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I didn't understand that command.")
 
 client = authenticateClient()
 settings = updateSettings(client)
@@ -75,10 +88,14 @@ dispatcher = updater.dispatcher
 start_handler = CommandHandler('start', start)
 displayCommand_handler = CommandHandler('help', displayHelp)
 displayWallet_handler = CommandHandler('wallet', displayWallet)
+displayOrders_handler = CommandHandler('orders', displayOrders)
+displayBalance_handler = CommandHandler('balance', displayBalance)
 unknown_handler = MessageHandler(Filters.command, unknown)
 dispatcher.add_handler(start_handler)
 dispatcher.add_handler(displayCommand_handler)
 dispatcher.add_handler(displayWallet_handler)
+dispatcher.add_handler(displayOrders_handler)
+dispatcher.add_handler(displayBalance_handler)
 dispatcher.add_handler(unknown_handler)
 updater.start_polling()
 updater.idle()
