@@ -445,8 +445,6 @@ def startTradingEngine(client, settings):
 def sellActiveFills(client, settings):
     try:
         settings = updateSettings(client)
-        print("Selling following active fills:")
-        printActiveFills(client, settings)
         activeFills = calculateActiveFills(client, settings)
         orderedBuyPrices = list(activeFills.keys())
         orderedBuyPrices.sort(reverse = True)
@@ -463,6 +461,15 @@ def sellActiveFills(client, settings):
     except Exception:
         print("Error in the execution of the engine: " + str(traceback.print_exc()))
     return
+
+def sellActiveFillsText(client, settings):
+    result = "Selling following active fills:\n"
+    result = result + getFillsText(client, settings)
+    sellActiveFills(client, settings)
+    return result
+
+def printSellActiveFills(client, settings):
+    print(sellActiveFillsText(client, settings))
 
 def printOpenOrders(client):
     print ("\n")
@@ -521,4 +528,6 @@ def getFillsText(client, settings):
     for orderedPriceItem in orderedBuyPrices:
         if activeFills[orderedPriceItem] != 0:
             result = result + "Buy price: " + str(float(orderedPriceItem)) + " Remaining quantity: " + str(float(activeFills[orderedPriceItem])) + "\n"
+    if not result:
+        result = "There are no active fills to sell."
     return result

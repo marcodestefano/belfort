@@ -1,6 +1,6 @@
 """Main belfort file."""
 import traceback
-from utils import authenticateClient, updateSettings, printWallets, printOpenOrders, printValue, printBalance, printActiveFills, startTradingEngine, sellActiveFills
+from utils import authenticateClient, updateSettings, printWallets, printOpenOrders, printValue, printBalance, printActiveFills, startTradingEngine, printSellActiveFills
 
 def promptCommand(text, acceptedValues):
     """Send a message to screen to get an input."""
@@ -48,7 +48,7 @@ try:
         elif command == commandStartTradingEngine:
         	startTradingEngine(client, settings)
         elif command == commandSellActiveFills:
-        	sellActiveFills(client, settings)
+        	printSellActiveFills(client, settings)
         elif command == commandExit:
             exit()
         print ("\n")
