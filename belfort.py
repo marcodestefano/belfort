@@ -1,6 +1,6 @@
 """Main belfort file."""
 import traceback
-from utils import authenticateClient, updateSettings, printWallets, printOpenOrders, printValue, printBalance, printActiveFills, startTradingEngine, printSellActiveFills
+from utils import authenticateClient, updateSettings, printWallets, printOpenOrders, printValue, printBalance, printActiveFills, startTradingEngine, stopTradingEngine, printSellActiveFills
 
 def promptCommand(text, acceptedValues):
     """Send a message to screen to get an input."""
@@ -18,15 +18,17 @@ commandDisplayOpenOrders = "2"
 commandPrintBalance = "3"
 commandPrintActiveFills = "4"
 commandStartTradingEngine = "5"
-commandSellActiveFills = "6"
+commandStopTradingEngine = "6"
+commandSellActiveFills = "7"
 commandExit = "e"
-commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandPrintBalance, commandPrintActiveFills, commandStartTradingEngine, commandSellActiveFills, commandExit]
+commandList = [commandDisplayWallet, commandDisplayOpenOrders, commandPrintBalance, commandPrintActiveFills, commandStartTradingEngine, commandSellActiveFills, commandStopTradingEngine, commandExit]
 commandMainInput = "What's next?\n" \
     "Press "+ commandDisplayWallet +" to display your wallets\n" \
     "Press "+ commandDisplayOpenOrders +" to display your open orders\n" \
     "Press "+ commandPrintBalance +" to print your current balance\n" \
     "Press "+ commandPrintActiveFills +" to print the active fills\n" \
     "Press "+ commandStartTradingEngine +" to start the trading engine\n" \
+    "Press "+ commandStopTradingEngine +" to stop the trading engine\n" \
     "Press "+ commandSellActiveFills +" to sell the active fills\n" \
     "Press "+ commandExit +" (or ctrl+c at any time) to exit the program\n" \
     "Select your choice: "
@@ -47,6 +49,8 @@ try:
         	printActiveFills(client, settings)
         elif command == commandStartTradingEngine:
         	startTradingEngine(client, settings)
+        elif command == commandStopTradingEngine:
+        	stopTradingEngine()
         elif command == commandSellActiveFills:
         	printSellActiveFills(client, settings)
         elif command == commandExit:

@@ -2,6 +2,7 @@ import cbpro
 import os
 import time
 import traceback
+import threading
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from datetime import datetime, timedelta
 
@@ -434,17 +435,23 @@ def executeTradingEngine(client, settings, duration):
     return
 
 def startTradingEngine(client, settings):
+    result = ""
     global TRADING_ENGINE_ACTIVE
-    TRADING_ENGINE_ACTIVE = 1
-    try:
-        settings = updateSettings(client)
-        print("Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds")
-        executeTradingEngine(client, settings, settings[ENGINE_RUN_DURATION])
-    except Exception:
-        print("Error in the execution of the engine: " + str(traceback.print_exc()))
-        if(settings[AUTO_RESTART]):
-            startTradingEngine(client, settings)
-    return
+    if not TRADING_ENGINE_ACTIVE:
+        try:
+            settings = updateSettings(client)
+            result = result + "Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds"
+            TRADING_ENGINE_ACTIVE = 1
+            tradingEngineThread = threading.Thread(target = executeTradingEngine, args = [client, settings, settings[ENGINE_RUN_DURATION]])
+            tradingEngineThread.start()
+        except Exception:
+            print("Error in the execution of the engine: " + str(traceback.print_exc()))
+            TRADING_ENGINE_ACTIVE = 0
+            if(settings[AUTO_RESTART]):
+                startTradingEngine(client, settings)
+    else:
+        result = result + "Trading engine is already running."
+    return result
 
 def stopTradingEngine():
     result = ""
@@ -506,7 +513,7 @@ def getOpenOrdersText(client):
     if not orders:
         result = "There are no open orders on your wallet account."
     for order in orders:
-        result = result + "ID: " + order["id"] + "\n" + "Type: " + order["side"] + "\n" + "Price: " + order["price"] + "\n" + "Size: " + order["size"] + "\n" + "Product ID: " + order["product_id"]
+        result = result + "ID: " + order["id"] + "\n" + "Type: " + order["side"] + "\n" + "Price: " + order["price"] + "\n" + "Size: " + order["size"] + "\n" + "Product ID: " + order["product_id"] + "\n"
     return result
 
 def printBalance(client, settings):
@@ -537,8 +544,8 @@ def getBalanceText(client, settings):
                 last24hBalance = last24hBalance + amount
                 last24hSize = last24hSize - size
             last24hBalance = last24hBalance - fee
-    result = result + "Current overall balance is " + str(float(balance)) + " " + settings[BASE_CURRENCY] + "\n"
-    result = result + "Last 24 hours balance is "+ str(float(last24hBalance)) + " " + settings[BASE_CURRENCY] + " and " + str(float(last24hSize)) + " " + settings[CRYPTO_CURRENCY]
+    result = result + "Current overall gain is " + str(float(balance)) + " " + settings[BASE_CURRENCY] + "\n"
+    result = result + "Last 24 hours gain is "+ str(float(last24hBalance)) + " " + settings[BASE_CURRENCY] + " and " + str(float(last24hSize)) + " " + settings[CRYPTO_CURRENCY] + " bought"
     return result
 
 def printActiveFills(client, settings):

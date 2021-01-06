@@ -1,6 +1,6 @@
 import os
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from utils import authenticateClient, updateSettings, getWalletsText, getOpenOrdersText, getBalanceText, getFillsText, sellActiveFillsText, stopTradingEngine, getTradingEngineStatusText
+from utils import authenticateClient, updateSettings, getWalletsText, getOpenOrdersText, getBalanceText, getFillsText, sellActiveFillsText, startTradingEngine, stopTradingEngine, getTradingEngineStatusText
 
 BOT_TOKEN = 'TelegramBotToken'
 TOKEN_FILENAME = 'telegram.cfg'
@@ -86,6 +86,9 @@ def displayFills(update, context):
 def sellFills(update, context):
     genericHandler(update, context, sellActiveFillsText, client, settings)
 
+def startEngine(update, context):
+    genericHandler(update, context, startTradingEngine, client, settings)
+
 def stopEngine(update, context):
     genericHandler(update, context, stopTradingEngine)
 
@@ -109,6 +112,7 @@ displayOrders_handler = CommandHandler('orders', displayOrders)
 displayBalance_handler = CommandHandler('balance', displayBalance)
 displayFills_handler = CommandHandler('fills', displayFills)
 sellFills_handler = CommandHandler('sellFills', sellFills)
+startEngine_handler = CommandHandler('startEngine', startEngine)
 stopEngine_handler = CommandHandler('stopEngine', stopEngine)
 status_handler = CommandHandler('status', status)
 unknown_handler = MessageHandler(Filters.command, unknown)
@@ -119,6 +123,7 @@ dispatcher.add_handler(displayOrders_handler)
 dispatcher.add_handler(displayBalance_handler)
 dispatcher.add_handler(displayFills_handler)
 dispatcher.add_handler(sellFills_handler)
+dispatcher.add_handler(startEngine_handler)
 dispatcher.add_handler(stopEngine_handler)
 dispatcher.add_handler(status_handler)
 dispatcher.add_handler(unknown_handler)
