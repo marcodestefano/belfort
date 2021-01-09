@@ -521,7 +521,7 @@ def getTradingEngineStatusText():
     global TRADING_ENGINE_ACTIVE
     global LAST_ORDERS
     if TRADING_ENGINE_ACTIVE:
-        result = "Trading engine is running. Last orders were " + LAST_ORDERS
+        result = "Trading engine is running.\nLast orders were:\n" + LAST_ORDERS
     else:
         result = "Trading engine is not running"
     return result
