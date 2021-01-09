@@ -68,6 +68,7 @@ DEFAULT_BASE_CURRENCY = "EUR"
 DEFAULT_CRYPTO_CURRENCY = "XLM"
 
 TRADING_ENGINE_ACTIVE = 0
+LAST_ORDERS = ""
 
 def getConfiguration(fileName):
     """Retrieve the configuration file."""
@@ -393,12 +394,15 @@ def calculateSellSize(client, cryptoAvailable, sellPrice, activeFillsToRemove, s
 def placeOrder(client, orderSide, orderSize, orderPrice, settings):
     """Places an order on Coinbase Pro of the given size, price, side (buy or sell) based on the available settings"""
     #If order size is bigger than the maximum allowed size for transaction, the order is capped at max size
+    textResult = ""
     if orderSize >= settings[MAX_SIZE]:
         orderSize = settings[MAX_SIZE]
-        print ("Warning in placing " + orderSide + " order of size : " + str(orderSize)  + ". Reducing to maximum size " + str(settings[MAX_SIZE]) + " " + settings[CRYPTO_CURRENCY])
+        textResult = "Warning in placing " + orderSide + " order of size : " + str(orderSize)  + ". Reducing to maximum size " + str(settings[MAX_SIZE]) + " " + settings[CRYPTO_CURRENCY]
+        print (textResult)
     #If order is bigger than the minimum allowed size, it is placed
     if orderSize >= settings[MIN_SIZE]:
         print ("Placing a " + orderSide + " order of " + str(orderSize) + " " + settings[CRYPTO_CURRENCY] + " at price of " + str(orderPrice) + " " + settings[BASE_CURRENCY])
+        textResult = textResult + "\n" + "Placing a " + orderSide + " order of " + str(orderSize) + " " + settings[CRYPTO_CURRENCY] + " at price of " + str(orderPrice) + " " + settings[BASE_CURRENCY]
         timeInForce = None
         cancelAfter = None
         if settings[AUTO_CANCEL] and (orderSide == ORDER_SIDE_BUY or not settings[KEEP_SELL_ORDER_OPEN]):
@@ -411,17 +415,21 @@ def placeOrder(client, orderSide, orderSize, orderPrice, settings):
         try:
             #If order is correctly placed, it will have a unique ID
             print (orderSide + " order placed with ID " + result["id"])
+            textResult = textResult + "\n" + orderSide + " order placed with ID " + result["id"]
         except Exception:
             #If there was an error in placing the order, the error message will be displayed
             print ("Error in placing " + orderSide + " order: " + result["message"])
+            textResult = textResult + "\n" + "Error in placing " + orderSide + " order: " + result["message"]
     else:
         #If order size is smaller than minimum allowed size, it can't be placed
         print ("Impossible to place " + orderSide + " order: " + "Minimum size is " + str(settings[MIN_SIZE]) + " " + settings[CRYPTO_CURRENCY] + " and you're trying to " + orderSide + " " + str(orderSize) + " " + settings[CRYPTO_CURRENCY])
-    return
+        textResult = textResult + "\n" + "Impossible to place " + orderSide + " order: " + "Minimum size is " + str(settings[MIN_SIZE]) + " " + settings[CRYPTO_CURRENCY] + " and you're trying to " + orderSide + " " + str(orderSize) + " " + settings[CRYPTO_CURRENCY]
+    return textResult
 
 def placeBuyOrder(client, settings):
     """Place a buy order based on current settings"""
     #Get the amount available to place a buy order
+    textResult = ""
     baseCurrencyInOpenOrders = getWalletHold(client, settings[BASE_CURRENCY])
     baseCurrencyAvailable = min(getWalletBalance(client, settings[BASE_CURRENCY])- baseCurrencyInOpenOrders, settings[MAX_BUY_AMOUNT])
     print (settings[BASE_CURRENCY] + " available: " + str(float(baseCurrencyAvailable)))
@@ -429,14 +437,15 @@ def placeBuyOrder(client, settings):
     if baseCurrencyAvailable > 0:
         buyPrice = calculateOrderPrice(client, ORDER_SIDE_BUY, settings)
         buySize = calculateBuySize(baseCurrencyAvailable, buyPrice, client, settings)
-        placeOrder(client, ORDER_SIDE_BUY, buySize, buyPrice, settings)
+        textResult = placeOrder(client, ORDER_SIDE_BUY, buySize, buyPrice, settings)
     else:
         print ("You have no available " + settings[BASE_CURRENCY] + " to place a " + ORDER_SIDE_BUY + " order")
-    return
+    return textResult
 
 def placeSellOrder(client, activeFillsToRemove, settings):
     """Place a sell order based on current settings"""
     #Get the amount available to place a buy order
+    textResult = ""
     cryptoInOpenOrders = getWalletHold(client, settings[CRYPTO_CURRENCY])
     cryptoAvailable = getWalletBalance(client, settings[CRYPTO_CURRENCY]) - cryptoInOpenOrders
     print (settings[CRYPTO_CURRENCY] + " available: " + str(float(cryptoAvailable)))
@@ -445,15 +454,16 @@ def placeSellOrder(client, activeFillsToRemove, settings):
         sellPrice = calculateOrderPrice(client, ORDER_SIDE_SELL, settings)
         sellSize = calculateSellSize(client, cryptoAvailable, sellPrice, activeFillsToRemove, settings)
         if sellSize > 0:
-            placeOrder(client, ORDER_SIDE_SELL, sellSize, sellPrice, settings)
+            textResult = placeOrder(client, ORDER_SIDE_SELL, sellSize, sellPrice, settings)
         else:
             print ("You have no available " + settings[CRYPTO_CURRENCY] + " to place a " + ORDER_SIDE_SELL + " order at " + str(sellPrice))
     else:
         print ("You have no available " + settings[CRYPTO_CURRENCY] + " to place a " + ORDER_SIDE_SELL + " order")
-    return
+    return textResult
 
 def executeTradingEngine(client, settings, duration):
     """Execute the trading engine for the given duration"""
+    global LAST_ORDERS
     activeFillsToRemove = {}
     if settings[IGNORE_EXISTING_FILLS]:
         activeFillsToRemove = calculateActiveFills(client, settings)
@@ -461,11 +471,12 @@ def executeTradingEngine(client, settings, duration):
     limitTime = actualTime + timedelta(seconds = duration)
     output = "Engine executed correctly from " + str(actualTime)
     while (actualTime < limitTime) and TRADING_ENGINE_ACTIVE:
+        LAST_ORDERS = ""
         if not settings[AUTO_CANCEL]:
             cancelObsoleteOrders(client, settings)
-        placeBuyOrder(client, settings)
+        LAST_ORDERS = placeBuyOrder(client, settings)
         time.sleep(settings[ORDER_TIME_INTERVAL]/2)
-        placeSellOrder(client, activeFillsToRemove, settings)
+        LAST_ORDERS = LAST_ORDERS + "\n" + placeSellOrder(client, activeFillsToRemove, settings)
         time.sleep(settings[ORDER_TIME_INTERVAL]/2)
         actualTime = datetime.utcnow()
     if not settings[AUTO_CANCEL]:
@@ -473,6 +484,7 @@ def executeTradingEngine(client, settings, duration):
         cancelObsoleteOrders(client, settings)
     output = output + " to " + str(actualTime)
     print(output)
+    LAST_ORDERS = ""
     return
 
 def startTradingEngine(client, settings):
@@ -507,8 +519,9 @@ def stopTradingEngine():
 def getTradingEngineStatusText():
     result = ""
     global TRADING_ENGINE_ACTIVE
+    global LAST_ORDERS
     if TRADING_ENGINE_ACTIVE:
-        result = "Trading engine is running"
+        result = "Trading engine is running. Last orders were " + LAST_ORDERS
     else:
         result = "Trading engine is not running"
     return result
