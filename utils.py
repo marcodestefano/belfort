@@ -36,6 +36,15 @@ SIZE_INCREMENT = "base_increment"
 PRICE_INCREMENT = "quote_increment"
 ORDER_SIDE_BUY = "buy"
 ORDER_SIDE_SELL = "sell"
+TIME_INTERVAL_DAY = 86400
+TIME_INTERVAL_MONTH = TIME_INTERVAL_DAY * 30
+TIME_INTERVAL_QUARTER = TIME_INTERVAL_MONTH * 3
+TIME_INTERVAL_3QUARTER = TIME_INTERVAL_QUARTER * 3
+RATIO_9M = Decimal(0.6)
+RATIO_3M = Decimal(0.3)
+RATIO_M = Decimal(0.1)
+PRODUCT_MIN_VALUE = "product_min_value"
+PRODUCT_MAX_VALUE = "product_max_value"
 
 DEFAULT_ENGINE_RUN_DURATION = 300
 DEFAULT_AUTO_RESTART = 0
@@ -183,6 +192,37 @@ def getProduct(client, baseCurrency, cryptoCurrency):
             return product
     return None
 
+def getProductMinAndMaxValue(client, timeInterval, settings):
+    GRANULARITY = 86400
+    result = {}
+    result[PRODUCT_MIN_VALUE] = Decimal('Inf')
+    result[PRODUCT_MAX_VALUE] = Decimal('-Inf')
+    actualTime = datetime.utcnow()
+    startTime = actualTime - timedelta(seconds = timeInterval)
+    endTime = actualTime
+    product=getCurrencyPair(settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY])
+    historicRate = client.get_product_historic_rates(product, startTime, endTime, GRANULARITY)
+    if historicRate:
+        for candle in historicRate:
+            if result[PRODUCT_MIN_VALUE] > candle[1]:
+                result[PRODUCT_MIN_VALUE] = candle[1]
+            if result[PRODUCT_MAX_VALUE] < candle[2]:
+                result[PRODUCT_MAX_VALUE] = candle[2]
+    return result
+
+def getRatio(currentValue, minValue, maxValue):
+    return Decimal(1 - ((Decimal(currentValue)-Decimal(minValue))/(Decimal(maxValue)-Decimal(minValue))))
+
+def getOrderRatio(client, settings):
+    monthMinMax = getProductMinAndMaxValue(client, TIME_INTERVAL_MONTH, settings)
+    quarterMinMax = getProductMinAndMaxValue(client, TIME_INTERVAL_QUARTER, settings)
+    threeQuarterMinMax = getProductMinAndMaxValue(client, TIME_INTERVAL_3QUARTER, settings)
+    currentValue = Decimal(getCurrentPrice(client, settings[BASE_CURRENCY], settings[CRYPTO_CURRENCY]))
+    ratio9M = RATIO_9M * getRatio(currentValue, threeQuarterMinMax[PRODUCT_MIN_VALUE], threeQuarterMinMax[PRODUCT_MAX_VALUE])
+    ratio3M = RATIO_3M * getRatio(currentValue, quarterMinMax[PRODUCT_MIN_VALUE], quarterMinMax[PRODUCT_MAX_VALUE])
+    ratioM = RATIO_M * getRatio(currentValue, monthMinMax[PRODUCT_MIN_VALUE], monthMinMax[PRODUCT_MAX_VALUE])
+    return ratio9M + ratio3M + ratioM
+
 def getWalletBalance(client, currency):
     """Returns the balance of the wallet in the given currency"""
     accounts = client.get_accounts()
@@ -263,9 +303,10 @@ def calculateOrderPrice(client, orderSide, settings):
     orderPrice = orderPrice.quantize(Decimal(settings[PRICE_INCREMENT]), rounding = roundingStrategy)
     return orderPrice
 
-def calculateBuySize(euroAvailable, buyPrice, settings):
+def calculateBuySize(euroAvailable, buyPrice, client, settings):
     """Returns the size of currency to buy based on the settings and the buy price, rounded with a precision of the smallest quantity that can be bought"""
     buySize = Decimal(euroAvailable)* Decimal(settings[BUY_AMOUNT_FACTOR]) / Decimal(buyPrice)
+    buySize = buySize * getOrderRatio(client, settings)
     buySize = buySize.quantize(Decimal(settings[SIZE_INCREMENT]))
     return buySize
 
@@ -387,7 +428,7 @@ def placeBuyOrder(client, settings):
     #If there's an amount available, price and size are calculated based on the settings
     if baseCurrencyAvailable > 0:
         buyPrice = calculateOrderPrice(client, ORDER_SIDE_BUY, settings)
-        buySize = calculateBuySize(baseCurrencyAvailable, buyPrice, settings)
+        buySize = calculateBuySize(baseCurrencyAvailable, buyPrice, client, settings)
         placeOrder(client, ORDER_SIDE_BUY, buySize, buyPrice, settings)
     else:
         print ("You have no available " + settings[BASE_CURRENCY] + " to place a " + ORDER_SIDE_BUY + " order")
