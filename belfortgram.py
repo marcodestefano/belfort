@@ -57,6 +57,7 @@ def getHelpMessage():
         "/wallet to display your wallets\n" \
         "/orders to display your open orders\n" \
         "/balance to print your current balance\n" \
+        "/fills to print your active fills\n" \
         "/sellFills to sell the active fills\n" \
         "/status to check the trading engine status\n" \
         "/startEngine to start the trading engine\n" \
