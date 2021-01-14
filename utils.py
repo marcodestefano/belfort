@@ -495,11 +495,13 @@ def executeTradingEngine(client, settings, duration):
     return
 
 def startTradingEngine(client, settings):
-    result = ""
     global TRADING_ENGINE_ACTIVE
     if not TRADING_ENGINE_ACTIVE:
         settings = updateSettings(client)
-        result = result + "Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds"
+        result = "Engine is going to run until manually stopped."
+        duration = settings[ENGINE_RUN_DURATION]
+        if duration > 0:
+            result = "Engine is going to run for " + str(duration) + " seconds"
         TRADING_ENGINE_ACTIVE = 1
         tradingEngineThread = threading.Thread(target = executeTradingEngine, args = [client, settings, settings[ENGINE_RUN_DURATION]])
         tradingEngineThread.start()
