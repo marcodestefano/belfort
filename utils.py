@@ -500,7 +500,7 @@ def startTradingEngine(client, settings):
         settings = updateSettings(client)
         result = "Engine is going to run until manually stopped."
         duration = settings[ENGINE_RUN_DURATION]
-        if duration > 0:
+        if duration >= 0:
             result = "Engine is going to run for " + str(duration) + " seconds"
         TRADING_ENGINE_ACTIVE = 1
         tradingEngineThread = threading.Thread(target = executeTradingEngine, args = [client, settings, settings[ENGINE_RUN_DURATION]])
