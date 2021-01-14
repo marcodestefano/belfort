@@ -463,45 +463,46 @@ def placeSellOrder(client, activeFillsToRemove, settings):
 
 def executeTradingEngine(client, settings, duration):
     """Execute the trading engine for the given duration"""
-    global LAST_ORDERS
-    activeFillsToRemove = {}
-    if settings[IGNORE_EXISTING_FILLS]:
-        activeFillsToRemove = calculateActiveFills(client, settings)
-    actualTime = datetime.utcnow()
-    limitTime = actualTime + timedelta(seconds = duration)
-    output = "Engine executed correctly from " + str(actualTime)
-    while (actualTime < limitTime) and TRADING_ENGINE_ACTIVE:
-        LAST_ORDERS = ""
-        if not settings[AUTO_CANCEL]:
-            cancelObsoleteOrders(client, settings)
-        LAST_ORDERS = placeBuyOrder(client, settings)
-        time.sleep(settings[ORDER_TIME_INTERVAL]/2)
-        LAST_ORDERS = LAST_ORDERS + "\n" + placeSellOrder(client, activeFillsToRemove, settings)
-        time.sleep(settings[ORDER_TIME_INTERVAL]/2)
+    try:
+        global LAST_ORDERS
+        global TRADING_ENGINE_ACTIVE
+        activeFillsToRemove = {}
+        if settings[IGNORE_EXISTING_FILLS]:
+            activeFillsToRemove = calculateActiveFills(client, settings)
         actualTime = datetime.utcnow()
-    if not settings[AUTO_CANCEL]:
-        time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL]/2)
-        cancelObsoleteOrders(client, settings)
-    output = output + " to " + str(actualTime)
-    print(output)
-    LAST_ORDERS = ""
+        limitTime = actualTime + timedelta(seconds = duration)
+        output = "Engine executed correctly from " + str(actualTime)
+        while (actualTime < limitTime) and TRADING_ENGINE_ACTIVE:
+            LAST_ORDERS = ""
+            if not settings[AUTO_CANCEL]:
+                cancelObsoleteOrders(client, settings)
+            LAST_ORDERS = placeBuyOrder(client, settings)
+            time.sleep(settings[ORDER_TIME_INTERVAL]/2)
+            LAST_ORDERS = LAST_ORDERS + "\n" + placeSellOrder(client, activeFillsToRemove, settings)
+            time.sleep(settings[ORDER_TIME_INTERVAL]/2)
+            actualTime = datetime.utcnow()
+        if not settings[AUTO_CANCEL]:
+            time.sleep(settings[ORDER_TIME_DURATION] - settings[ORDER_TIME_INTERVAL]/2)
+            cancelObsoleteOrders(client, settings)
+        output = output + " to " + str(actualTime)
+        print(output)
+        LAST_ORDERS = ""
+    except Exception:
+        print("Error in the execution of the engine: " + str(traceback.print_exc()))
+        TRADING_ENGINE_ACTIVE = 0
+        if(settings[AUTO_RESTART]):
+                startTradingEngine(client, settings)
     return
 
 def startTradingEngine(client, settings):
     result = ""
     global TRADING_ENGINE_ACTIVE
     if not TRADING_ENGINE_ACTIVE:
-        try:
-            settings = updateSettings(client)
-            result = result + "Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds"
-            TRADING_ENGINE_ACTIVE = 1
-            tradingEngineThread = threading.Thread(target = executeTradingEngine, args = [client, settings, settings[ENGINE_RUN_DURATION]])
-            tradingEngineThread.start()
-        except Exception:
-            print("Error in the execution of the engine: " + str(traceback.print_exc()))
-            TRADING_ENGINE_ACTIVE = 0
-            if(settings[AUTO_RESTART]):
-                startTradingEngine(client, settings)
+        settings = updateSettings(client)
+        result = result + "Engine is going to run for " + str(settings[ENGINE_RUN_DURATION]) + " seconds"
+        TRADING_ENGINE_ACTIVE = 1
+        tradingEngineThread = threading.Thread(target = executeTradingEngine, args = [client, settings, settings[ENGINE_RUN_DURATION]])
+        tradingEngineThread.start()
     else:
         result = result + "Trading engine is already running."
     return result
